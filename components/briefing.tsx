@@ -5,14 +5,11 @@ import { Search } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarginTrack } from "@/components/margin-track";
 import { UsMap } from "@/components/us-map";
 import {
   BALLOT_AS_OF,
-  EDITION,
   EVEN_SWING,
-  FORECAST_AS_OF,
   GENERIC_POLLS,
   NATIONAL_GENERIC,
   PRESIDENTIAL_2024_MARGIN_D,
@@ -20,21 +17,26 @@ import {
   STATES,
   comparisonCopy,
   daysUntilElection,
-  formatIn100,
   formatMargin,
   genericMargin,
   getState,
   matchesQuery,
-  senateUrl,
-  type Candidate,
-  type SenateRace,
   type StateRecord,
 } from "@/lib/election";
-
-type Layer = "ballot" | "senate";
+import {
+  HOUSE_CONTROL,
+  POLYMARKET_AS_OF,
+  SENATE_CONTROL,
+  averageShares,
+  blendsPolls,
+  formatChance,
+  partyName,
+  quotedChances,
+  type SenateRace,
+  type Share,
+} from "@/lib/senate-live";
 
 export function Briefing() {
-  const [layer, setLayer] = useState<Layer>("ballot");
   const [query, setQuery] = useState("");
   const selected = useSyncExternalStore(subscribeToHash, readHash, () => "KS");
   const days = useSyncExternalStore(subscribeToNothing, () => daysUntilElection(), () => UNKNOWN_DAYS);
@@ -75,13 +77,14 @@ export function Briefing() {
           <p className="max-w-sm text-sm leading-6 text-muted-foreground sm:text-right">
             {countdown(days)}
             <span className="mt-1 block">
-              Numbers below are the {FORECAST_AS_OF} snapshot. They do not update on their own.
+              Polymarket prices are the {POLYMARKET_AS_OF} snapshot. They do not update on their own.
             </span>
           </p>
         </div>
         <p className="max-w-3xl text-lg leading-8">
-          The generic congressional ballot in every state, and the chance each Senate
-          nominee wins on November 3. Built so you can send one link instead of a group chat full of screenshots.
+          The generic congressional ballot in every state, and a Senate chance that splits
+          Polymarket’s live price with the public polling averages. Built so you can send one
+          link instead of a group chat full of screenshots.
         </p>
       </header>
 
@@ -103,75 +106,61 @@ export function Briefing() {
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Senate control
             </h2>
-            <p className="mt-3 font-heading text-4xl tabular-nums">58 in 100</p>
+            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(SENATE_CONTROL.dem)}</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Democrats to control the chamber, Republicans 42 in 100. If every race goes to its favorite: Democrats 53, Republicans 47.
+              Polymarket’s price that Democrats win the chamber. Republicans {formatChance(SENATE_CONTROL.rep)}.{" "}
+              <a className="underline underline-offset-4" href={SENATE_CONTROL.url}>
+                Market
+              </a>
+              .
             </p>
           </article>
           <article className="bg-card p-5">
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               House control
             </h2>
-            <p className="mt-3 font-heading text-4xl tabular-nums">83 in 100</p>
+            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(HOUSE_CONTROL.dem)}</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Democrats to control the House. If every district goes to its favorite: Democrats 233, Republicans 202.
+              Polymarket’s price that Democrats win the House. Republicans {formatChance(HOUSE_CONTROL.rep)}.{" "}
+              <a className="underline underline-offset-4" href={HOUSE_CONTROL.url}>
+                Market
+              </a>
+              .
             </p>
           </article>
         </section>
 
         <p className="text-sm leading-6 text-muted-foreground">
-          Same forecast, read across both chambers: Democrats win both 57 times in 100,
-          a Democratic House with a Republican Senate 26 in 100, Republicans win both 15 in 100,
-          and a Democratic Senate with a Republican House 2 in 100. Today’s Senate is 53 Republican
-          and 47 Democratic-aligned, so the favorite-outcome map is a four-seat Democratic gain.
+          Those two markets are separate contracts. This page does not turn them into a joint
+          simulation of who wins both chambers. Each Senate race below is its own blend.
         </p>
 
         <section aria-label="Closest Senate races" className="flex flex-col gap-3">
           <h2 className="font-heading text-2xl">Closest Senate races</h2>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {SENATE_RACES.slice(0, 8).map((raceState) => (
-              <Button
-                key={raceState.abbr}
-                variant={selected === raceState.abbr && layer === "senate" ? "default" : "outline"}
-                className="h-11 shrink-0"
-                onClick={() => {
-                  setLayer("senate");
-                  select(raceState.abbr);
-                }}
-              >
-                {raceState.abbr}
-                <span className="tabular-nums text-current/80">
-                  {formatMargin(raceState.senate!.marginD)}
-                </span>
-              </Button>
-            ))}
+            {SENATE_RACES.slice(0, 8).map((raceState) => {
+              const leader = [...quotedChances(raceState.senate!)].sort((a, b) => b.chance - a.chance)[0];
+              return (
+                <Button
+                  key={raceState.abbr}
+                  variant={selected === raceState.abbr ? "default" : "outline"}
+                  className="h-11 shrink-0"
+                  onClick={() => select(raceState.abbr)}
+                >
+                  {raceState.abbr}
+                  <span className="tabular-nums text-current/80">
+                    {leader.party} {formatChance(leader.chance).replace(" in 100", "")}
+                  </span>
+                </Button>
+              );
+            })}
           </div>
         </section>
 
         <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
           <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Tabs
-                value={layer}
-                onValueChange={(value) => {
-                  if (value === "ballot" || value === "senate") setLayer(value);
-                }}
-              >
-                <TabsList variant="line" className="h-11">
-                  <TabsTrigger value="ballot" className="h-9 px-3">
-                    Generic ballot
-                  </TabsTrigger>
-                  <TabsTrigger value="senate" className="h-9 px-3">
-                    Senate odds
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="ballot" className="sr-only">
-                  Map colored by the state generic-ballot estimate.
-                </TabsContent>
-                <TabsContent value="senate" className="sr-only">
-                  Map colored by the Senate forecast margin.
-                </TabsContent>
-              </Tabs>
+              <p className="text-sm font-medium">Generic ballot</p>
               <div className="relative w-full sm:max-w-xs">
                 <Search
                   className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -186,7 +175,7 @@ export function Briefing() {
                 />
               </div>
             </div>
-            <UsMap layer={layer} selected={selected} query={query} onSelect={select} />
+            <UsMap selected={selected} query={query} onSelect={select} />
             <label className="grid gap-1 text-sm">
               <span className="text-muted-foreground">Jump to a state</span>
               <select
@@ -203,11 +192,7 @@ export function Briefing() {
               </select>
             </label>
           </div>
-          <StateDossier
-            abbr={selected}
-            state={state}
-            onSenate={() => setLayer("senate")}
-          />
+          <StateDossier abbr={selected} state={state} />
         </section>
 
         <section className="flex flex-col gap-4" aria-labelledby="senate-board-heading">
@@ -218,7 +203,7 @@ export function Briefing() {
             <p className="text-sm text-muted-foreground">
               {query.trim()
                 ? `${filtered.length} of 35 match “${query.trim()}”`
-                : "Closest first. A chance of 60 in 100 still loses about two times in five."}
+                : "Closest to even first. A chance of 60 in 100 still loses about two times in five."}
             </p>
           </div>
           {filtered.length === 0 ? (
@@ -232,10 +217,7 @@ export function Briefing() {
                   key={raceState.abbr}
                   state={raceState}
                   selected={selected === raceState.abbr}
-                  onSelect={() => {
-                    setLayer("senate");
-                    select(raceState.abbr);
-                  }}
+                  onSelect={() => select(raceState.abbr)}
                 />
               ))}
             </div>
@@ -313,18 +295,22 @@ export function Briefing() {
             blowouts a uniform shift can run past what a real ballot would show.
           </p>
           <p>
-            The Senate figures are a separate forecast: Call the Map’s CTMM 2.2 model,
-            edition {EDITION}, published {FORECAST_AS_OF}. They use state polls, history,
-            and the national environment. Expert ratings are not an input. A candidate at
-            74 in 100 is supposed to lose about one time in four. When the Senate margin
-            and the generic-ballot estimate disagree, that is the candidate, not the national mood.
-            Collins in Maine and Hamilton in Kansas are the clearest examples on this map.
+            Each Senate chance is half Polymarket and half the polls, when the same two
+            candidates appear in both. Polymarket contributes its Yes price. Each polling
+            aggregator contributes that candidate’s share of the two-candidate average,
+            leaving undecided voters out. Those aggregator shares are averaged first, then
+            split evenly with the Polymarket price. A candidate at 60 in 100 still loses
+            about two times in five. Where the aggregators do not publish a matching 2026
+            average, or the candidate lists do not line up, the chance is the Polymarket
+            price alone and the polls stay in the table.
           </p>
           <p>
-            Georgia’s percentage is the chance to finish ahead on November 3, not a runoff.
-            Alaska and Maine include ranked-choice transfers. Nebraska’s challenger is
-            independent Dan Osborn. South Carolina’s Republican nominee is Darline Graham;
-            Lindsey Graham died on July 11, 2026, after winning the primary.
+            The Texas Democrat is listed as James Talafreako. The Polymarket contract and
+            the polling averages are for the name on that ballot. Alaska and Maine use
+            ranked-choice voting; the averages here are the published head-to-head numbers.
+            Nebraska’s challenger is independent Dan Osborn. South Carolina’s Republican
+            nominee is Darline Graham Nordone; Lindsey Graham died on July 11, 2026, after
+            winning the primary.
           </p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
@@ -333,17 +319,23 @@ export function Briefing() {
               </a>
             </li>
             <li>
-              <a className="underline underline-offset-4" href="https://www.callthemap.com/state-of-the-race">
-                Call the Map, state of the race, {FORECAST_AS_OF}
+              <a className="underline underline-offset-4" href={SENATE_CONTROL.url}>
+                Polymarket, which party will win the Senate
+              </a>
+              {" "}and{" "}
+              <a className="underline underline-offset-4" href={HOUSE_CONTROL.url}>
+                which party will win the House
+              </a>
+              , {POLYMARKET_AS_OF}
+            </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://fiftyplusone.news/averages">
+                FiftyPlusOne, 2026 Senate averages
               </a>
             </li>
             <li>
-              <a className="underline underline-offset-4" href="https://www.callthemap.com/senate">
-                Call the Map Senate forecast
-              </a>
-              {" "}and{" "}
-              <a className="underline underline-offset-4" href="https://www.callthemap.com/house">
-                House forecast
+              <a className="underline underline-offset-4" href="https://electoral-vote.com/evp2026/Senate/averages.html">
+                Electoral-Vote.com, Senate averages
               </a>
             </li>
             <li>
@@ -380,18 +372,16 @@ function countdown(days: number): string {
   if (days > 1) return `${days} days until Election Day, Tuesday, November 3.`;
   if (days === 1) return "Tomorrow is Election Day, Tuesday, November 3.";
   if (days === 0) return "Today is Election Day.";
-  if (days === -1) return "Election Day was yesterday. This page is still the October 31 forecast, not a results page.";
-  return `Election Day was ${Math.abs(days)} days ago. This page is still the October 31 forecast, not a results page.`;
+  if (days === -1) return "Election Day was yesterday. This page is still the October 31 snapshot, not a results page.";
+  return `Election Day was ${Math.abs(days)} days ago. This page is still the October 31 snapshot, not a results page.`;
 }
 
 function StateDossier({
   abbr,
   state,
-  onSenate,
 }: {
   abbr: string;
   state: StateRecord | undefined;
-  onSenate: () => void;
 }) {
   if (abbr === "DC" || !state) {
     return (
@@ -407,7 +397,6 @@ function StateDossier({
   }
 
   const generic = genericMargin(state.trumpMargin2024);
-  const url = senateUrl(state);
 
   return (
     <aside id="state-dossier" className="flex flex-col gap-5 rounded-xl border bg-card p-5 lg:sticky lg:top-4">
@@ -420,9 +409,7 @@ function StateDossier({
       <p className="text-base leading-7">{comparisonCopy(state)}</p>
       <div className="flex flex-col gap-3">
         <MarginTrack marginD={generic} label="Generic ballot" />
-        {state.senate ? (
-          <MarginTrack marginD={state.senate.marginD} label="Senate forecast" />
-        ) : (
+        {state.senate ? null : (
           <p className="text-sm text-muted-foreground">No Senate race on November 3.</p>
         )}
       </div>
@@ -431,43 +418,118 @@ function StateDossier({
         National shift D+{EVEN_SWING.toFixed(2)}.
         Estimate {formatMargin(generic)}.
       </p>
+      {state.senate ? <PollTable race={state.senate} /> : null}
       {state.senate ? <ChanceBlock race={state.senate} /> : null}
       {state.senate?.caveat ? (
         <p className="text-sm leading-6 text-muted-foreground">{state.senate.caveat}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {state.senate ? (
-          <Button variant="outline" className="h-11" onClick={onSenate}>
-            Show on the Senate map
-          </Button>
-        ) : null}
-        {url ? (
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(buttonVariants({ variant: "outline" }), "h-11")}
-          >
-            Race forecast
-          </a>
-        ) : null}
-      </div>
+      {state.senate ? (
+        <a
+          href={state.senate.polymarketUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={cn(buttonVariants({ variant: "outline" }), "h-11")}
+        >
+          Polymarket odds
+        </a>
+      ) : null}
     </aside>
   );
 }
 
+function PollTable({ race }: { race: SenateRace }) {
+  if (race.polls.length === 0) {
+    return (
+      <p className="text-sm leading-6 text-muted-foreground">
+        No 2026 polling average from FiftyPlusOne or Electoral-Vote.com.
+      </p>
+    );
+  }
+  const names = [...new Set(race.polls.flatMap((poll) => poll.shares.map((share) => share.name)))];
+  const average = averageShares(race);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+        Polling averages
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">Polling averages for this Senate race</caption>
+          <thead className="border-b text-xs tracking-wide text-muted-foreground uppercase">
+            <tr>
+              <th scope="col" className="py-2 pr-3 font-medium">Source</th>
+              {names.map((name) => (
+                <th key={name} scope="col" className="py-2 pr-3 text-right font-medium">
+                  {name.split(" ").slice(-1)[0]}
+                </th>
+              ))}
+              <th scope="col" className="py-2 text-right font-medium">Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {race.polls.map((poll) => (
+              <tr key={poll.source} className="border-b last:border-0">
+                <th scope="row" className="py-2 pr-3 font-medium">
+                  <a className="underline underline-offset-4" href={poll.url}>
+                    {poll.source}
+                  </a>
+                  <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{poll.asOf}</span>
+                </th>
+                {names.map((name) => {
+                  const share = poll.shares.find((item) => item.name === name);
+                  return (
+                    <td key={name} className="py-2 pr-3 text-right tabular-nums">
+                      {share ? `${share.pct}%` : "—"}
+                    </td>
+                  );
+                })}
+                <td className="py-2 text-right font-medium tabular-nums">{leadLabel(poll.shares)}</td>
+              </tr>
+            ))}
+            {average && race.polls.length > 1 ? (
+              <tr className="bg-muted/60">
+                <th scope="row" className="py-2 pr-3 font-medium">Average</th>
+                {average.map((share) => (
+                  <td key={share.name} className="py-2 pr-3 text-right tabular-nums">
+                    {share.pct}%
+                  </td>
+                ))}
+                <td className="py-2 text-right font-medium tabular-nums">{leadLabel(average)}</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function leadLabel(shares: Share[]): string {
+  if (shares.length < 2) return "—";
+  const ranked = [...shares].sort((a, b) => b.pct - a.pct);
+  const gap = Math.round((ranked[0].pct - ranked[1].pct) * 10) / 10;
+  if (gap === 0) return "Tied";
+  const last = ranked[0].name.split(" ").slice(-1)[0];
+  return `${last} +${gap.toFixed(1)}`;
+}
+
 function ChanceBlock({ race }: { race: SenateRace }) {
-  const people = contenders(race);
-  const total = people.reduce((sum, person) => sum + person.win, 0);
+  const people = quotedChances(race);
+  const total = people.reduce((sum, person) => sum + person.chance, 0);
+  const blended = blendsPolls(race);
 
   return (
     <div className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+        {blended ? "Combined chance" : "Polymarket"}
+      </h3>
       <div className="flex h-3 overflow-hidden rounded-full" aria-hidden>
         {people.map((person) => (
           <div
             key={person.name}
             style={{
-              width: `${(person.win / total) * 100}%`,
+              width: `${(person.chance / total) * 100}%`,
               background: person.party === "D" ? "#1e4f8f" : person.party === "R" ? "#8f2d2d" : "#2f6b4f",
             }}
           />
@@ -486,12 +548,17 @@ function ChanceBlock({ race }: { race: SenateRace }) {
               />
               {person.name}
               <span className="text-muted-foreground"> · {partyName(person.party)}</span>
+              {blended ? (
+                <span className="block text-xs text-muted-foreground">
+                  Polymarket {formatChance(person.polymarket)}
+                  {person.poll !== null ? ` · polls ${formatChance(person.poll)}` : ""}
+                </span>
+              ) : null}
             </span>
-            <span className="shrink-0 tabular-nums">{formatIn100(person.win)}</span>
+            <span className="shrink-0 tabular-nums">{formatChance(person.chance)}</span>
           </li>
         ))}
       </ul>
-      <p className="text-xs tracking-wide text-muted-foreground uppercase">{race.rating}</p>
     </div>
   );
 }
@@ -506,10 +573,11 @@ function RaceRow({
   onSelect: () => void;
 }) {
   const race = state.senate!;
-  const people = contenders(race);
+  const people = quotedChances(race);
+  const leader = [...people].sort((a, b) => b.chance - a.chance)[0];
 
   return (
-    <article className={`grid gap-3 border-b p-4 last:border-0 md:grid-cols-[11rem_1fr_6.5rem] ${selected ? "bg-muted/70" : ""}`}>
+    <article className={`grid gap-3 border-b p-4 last:border-0 md:grid-cols-[11rem_1fr_8rem] ${selected ? "bg-muted/70" : ""}`}>
       <div>
         <Button
           variant="ghost"
@@ -519,7 +587,9 @@ function RaceRow({
         >
           {state.name}
         </Button>
-        <p className="text-sm text-muted-foreground">{race.rating}</p>
+        <p className="text-sm text-muted-foreground">
+          {blendsPolls(race) ? "Polymarket and polls" : "Polymarket"}
+        </p>
       </div>
       <ul className="flex flex-col justify-center gap-1 text-sm">
         {people.map((person) => (
@@ -528,27 +598,13 @@ function RaceRow({
               {person.name}
               <span className="text-muted-foreground"> · {partyName(person.party)}</span>
             </span>
-            <span className="tabular-nums">{formatIn100(person.win)}</span>
+            <span className="tabular-nums">{formatChance(person.chance)}</span>
           </li>
         ))}
       </ul>
       <p className="font-heading text-2xl tabular-nums md:text-right">
-        {formatMargin(race.marginD)}
+        {leader.party} {formatChance(leader.chance).replace(" in 100", "")}
       </p>
     </article>
   );
-}
-
-function contenders(race: SenateRace): Candidate[] {
-  const people: Candidate[] = [];
-  if (race.dem) people.push(race.dem);
-  if (race.ind) people.push(race.ind);
-  people.push(race.rep);
-  return people;
-}
-
-function partyName(party: "D" | "R" | "I"): string {
-  if (party === "D") return "Democrat";
-  if (party === "R") return "Republican";
-  return "Independent";
 }

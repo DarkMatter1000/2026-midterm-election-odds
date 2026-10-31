@@ -21,7 +21,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Before Tuesday — 2026 midterm briefing",
   description:
-    "The generic congressional ballot in every state, and the odds in all 35 Senate races, before the November 3, 2026 election.",
+    "The generic congressional ballot in every state, and Senate chances split between Polymarket and the polling averages, before the November 3, 2026 election.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

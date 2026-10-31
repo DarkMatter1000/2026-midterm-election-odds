@@ -12,40 +12,32 @@ import {
   type StateRecord,
 } from "@/lib/election";
 
-type Layer = "ballot" | "senate";
-
 export function UsMap({
-  layer,
   selected,
   query,
   onSelect,
 }: {
-  layer: Layer;
   selected: string;
   query: string;
   onSelect: (abbr: string) => void;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const captionAbbr = hover ?? selected;
-  const caption = captionFor(captionAbbr, layer);
+  const caption = captionFor(captionAbbr);
 
   return (
     <figure className="flex flex-col gap-3">
       <svg
         viewBox={`0 0 ${MAP_VIEW.width} ${MAP_VIEW.height}`}
         role="group"
-        aria-label={
-          layer === "ballot"
-            ? "United States map colored by the estimated generic congressional ballot"
-            : "United States map colored by the Senate forecast margin"
-        }
+        aria-label="United States map colored by the estimated generic congressional ballot"
         className="h-auto w-full"
       >
         {STATE_PATHS.map((shape) => {
           const state = getState(shape.abbr);
           const active = shape.abbr === selected;
           const dim = query.trim().length > 0 && !pathMatches(shape.abbr, state, query);
-          const fill = fillFor(shape.abbr, state, layer);
+          const fill = fillFor(state);
           return (
             <path
               key={shape.abbr}
@@ -58,7 +50,7 @@ export function UsMap({
               tabIndex={0}
               role="button"
               aria-pressed={active}
-              aria-label={captionFor(shape.abbr, layer)}
+              aria-label={captionFor(shape.abbr)}
               onMouseEnter={() => setHover(shape.abbr)}
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(shape.abbr)}
@@ -87,9 +79,7 @@ export function UsMap({
         <span>D+28</span>
       </div>
       <p className="text-sm text-muted-foreground">
-        {layer === "ballot"
-          ? "Every state is shifted by the same national change from the 2024 presidential vote. Gray is the District of Columbia, which this estimate does not cover."
-          : "Color is the Senate forecast margin. Gray states, and the District of Columbia, have no Senate race on November 3."}
+        Every state is shifted by the same national change from the 2024 presidential vote. Gray is the District of Columbia, which this estimate does not cover. Senate chances are listed beside the map, not drawn on it.
       </p>
     </figure>
   );
@@ -107,26 +97,16 @@ function pathMatches(
   return state ? matchesQuery(state, query) : false;
 }
 
-function fillFor(
-  abbr: string,
-  state: StateRecord | undefined,
-  layer: Layer,
-): string {
+function fillFor(state: StateRecord | undefined): string {
   if (!state) return NEUTRAL_FILL;
-  if (layer === "ballot") return marginFill(genericMargin(state.trumpMargin2024));
-  if (!state.senate) return NEUTRAL_FILL;
-  return marginFill(state.senate.marginD);
+  return marginFill(genericMargin(state.trumpMargin2024));
 }
 
-function captionFor(abbr: string, layer: Layer): string {
+function captionFor(abbr: string): string {
   if (abbr === "DC") {
     return "District of Columbia. No Senate race, and not included in the state generic-ballot estimate.";
   }
   const state = getState(abbr);
   if (!state) return abbr;
-  if (layer === "ballot") {
-    return `${state.name}. Generic ballot estimate ${formatMargin(genericMargin(state.trumpMargin2024))}.`;
-  }
-  if (!state.senate) return `${state.name}. No Senate race in 2026.`;
-  return `${state.name} Senate. ${state.senate.rating}, forecast ${formatMargin(state.senate.marginD)}.`;
+  return `${state.name}. Generic ballot estimate ${formatMargin(genericMargin(state.trumpMargin2024))}.`;
 }
