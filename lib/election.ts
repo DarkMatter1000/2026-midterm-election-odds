@@ -229,6 +229,69 @@ export function scaledTurnout(baseline: number, percent: number): number {
   return Math.round((baseline * percent) / 100);
 }
 
+/** A state's expected ballots may not exceed 150% of its 2024 House total. */
+export const TURNOUT_2024_MAX = 150;
+
+export type TurnoutOf2024 = {
+  /** Whole ballots. With a zero adjustment this is the 2022 baseline scaled by the national slider. */
+  expected: number;
+  /** Expected ballots as a percent of the 2024 House total, after the per-state adjustment and the 0–150 clamp. */
+  displayedPercent: number;
+  /** The national slider's ballots as a percent of the 2024 House total, before the per-state adjustment. */
+  basePercent: number;
+};
+
+function clampTurnoutPercent(percent: number): number {
+  return Math.min(TURNOUT_2024_MAX, Math.max(0, percent));
+}
+
+/**
+ * National turnout scales the 2022 baseline. A per-state adjustment is added in
+ * percentage points of the 2024 House total. A zero adjustment keeps the rounded
+ * 2022-scaled total, so the numbers on the page do not move until a state is touched.
+ */
+export function turnoutOf2024(
+  votes2022: number,
+  votes2024: number,
+  nationalPercent: number,
+  adjust = 0,
+): TurnoutOf2024 {
+  const expectedBase = scaledTurnout(votes2022, nationalPercent);
+  const basePercent = (expectedBase / votes2024) * 100;
+  if (adjust === 0) {
+    return { expected: expectedBase, displayedPercent: basePercent, basePercent };
+  }
+  const displayedPercent = clampTurnoutPercent(basePercent + adjust);
+  return {
+    expected: Math.max(0, Math.round((votes2024 * displayedPercent) / 100)),
+    displayedPercent,
+    basePercent,
+  };
+}
+
+/** Up or down one percentage point of the 2024 total. A click that would pass 0 or 150 stops on the clamp. */
+export function stepTurnoutAdjust(
+  votes2022: number,
+  votes2024: number,
+  nationalPercent: number,
+  currentAdjust: number,
+  delta: number,
+): number {
+  const { displayedPercent: shown, basePercent } = turnoutOf2024(
+    votes2022,
+    votes2024,
+    nationalPercent,
+    currentAdjust,
+  );
+  let next = shown + delta;
+  if (next > TURNOUT_2024_MAX) next = TURNOUT_2024_MAX;
+  if (next < 0) next = 0;
+  if (next === shown) return currentAdjust;
+  const stored = next - basePercent;
+  if (Math.abs(stored) < 1e-6) return 0;
+  return stored;
+}
+
 export type StateBallot = {
   margin: number;
   raw: number;
@@ -275,6 +338,9 @@ export function weightedNational(
   const demVotes = rows.reduce((sum, row) => sum + row.demVotes, 0);
   const repVotes = rows.reduce((sum, row) => sum + row.repVotes, 0);
   const turnout = rows.reduce((sum, row) => sum + row.turnout, 0);
+  if (turnout === 0) {
+    return { demVotes, repVotes, turnout, demPct: 0, repPct: 0, margin: 0 };
+  }
   const demPct = (demVotes / turnout) * 100;
   const repPct = (repVotes / turnout) * 100;
   return { demVotes, repVotes, turnout, demPct, repPct, margin: demPct - repPct };

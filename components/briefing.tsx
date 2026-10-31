@@ -22,9 +22,10 @@ import {
   getState,
   matchesQuery,
   scenarioGeneric,
-  scaledTurnout,
   senateProjection,
   stateBallot,
+  stepTurnoutAdjust,
+  turnoutOf2024,
   weightedNational,
   type StateRecord,
 } from "@/lib/election";
@@ -71,6 +72,7 @@ export function Briefing() {
   const [slider, setSlider] = useState(NATIONAL_GENERIC.marginD);
   const [custom, setCustom] = useState<Record<string, number>>({});
   const [turnoutPercent, setTurnoutPercent] = useState(100);
+  const [turnoutAdjust, setTurnoutAdjust] = useState<Record<string, number>>({});
   const scenario = scenarioGeneric(slider);
   const delta = scenario.delta;
 
@@ -94,11 +96,38 @@ export function Briefing() {
     });
   }
 
+  function stateTurnoutAdjust(abbr: string): number {
+    return turnoutAdjust[abbr] ?? 0;
+  }
+
+  function stepStateTurnout(abbr: string, direction: 1 | -1) {
+    const baseline = HOUSE_2022[abbr].total;
+    const votes2024 = HOUSE_2024[abbr].votes;
+    const next = stepTurnoutAdjust(
+      baseline,
+      votes2024,
+      turnoutPercent,
+      stateTurnoutAdjust(abbr),
+      direction,
+    );
+    setTurnoutAdjust((prev) => {
+      if (next === 0) {
+        const rest = { ...prev };
+        delete rest[abbr];
+        return rest;
+      }
+      return { ...prev, [abbr]: next };
+    });
+  }
+
   const ballots = STATES.map((state) => {
     const baseline = HOUSE_2022[state.abbr].total;
+    const votes2024 = HOUSE_2024[state.abbr].votes;
+    const adjust = stateTurnoutAdjust(state.abbr);
+    const turnout = turnoutOf2024(baseline, votes2024, turnoutPercent, adjust);
     const ballot = stateBallot(
       state.trumpMargin2024,
-      scaledTurnout(baseline, turnoutPercent),
+      turnout.expected,
       delta,
       customDelta(state.abbr),
     );
@@ -109,6 +138,10 @@ export function Briefing() {
       customDelta: customDelta(state.abbr),
       baseline,
       baselineUrl: HOUSE_2022[state.abbr].url,
+      votes2024,
+      votes2024Url: HOUSE_2024[state.abbr].url,
+      turnoutAdjust: adjust,
+      percentOf2024: turnout.displayedPercent,
     };
   });
   const baselineNational = ballots.reduce((sum, row) => sum + row.baseline, 0);
@@ -116,6 +149,7 @@ export function Briefing() {
   const margins = Object.fromEntries(ballots.map((ballot) => [ballot.abbr, ballot.margin]));
   const weighted = weightedNational(ballots);
   const anyCustom = ballots.some((ballot) => ballot.customDelta !== 0);
+  const anyTurnoutAdjust = ballots.some((ballot) => ballot.turnoutAdjust !== 0);
 
   const races = [...SENATE_RACES].sort(
     (a, b) => closeness(a.senate!, shiftFor(a.abbr)) - closeness(b.senate!, shiftFor(b.abbr)),
@@ -200,9 +234,11 @@ export function Briefing() {
                 {formatVotes(weighted.turnout)}
               </span>{" "}
               expected ballots
-              {turnoutPercent === 100
+              {turnoutPercent === 100 && !anyTurnoutAdjust
                 ? ", the 2022 House vote in the 50 states."
-                : `, ${turnoutPercent}% of the 2022 House vote in the 50 states (${formatVotes(baselineNational)}).`}{" "}
+                : anyTurnoutAdjust
+                  ? ", after the national turnout setting and any state’s own share of its 2024 House vote."
+                  : `, ${turnoutPercent}% of the 2022 House vote in the 50 states (${formatVotes(baselineNational)}).`}{" "}
               That 2022 total is the turnout anchor, not a forecast of how many people will vote in 2026.
             </p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -246,7 +282,7 @@ export function Briefing() {
               adds 1.0 point toward Democrats on every state generic-ballot estimate first, and on
               every Senate polling margin. A per-state adjustment is applied after that, and only
               to that state. The range runs from even to D+16.0. Refresh the page
-              to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, and return turnout to 100% of the 2022 House vote. Nothing is saved.
+              to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
             </p>
           </article>
           <article className="bg-card p-5">
@@ -361,8 +397,13 @@ export function Briefing() {
           turnoutPercent={turnoutPercent}
           weighted={weighted}
           onCustomDelta={setCustomDelta}
+          anyTurnoutAdjust={anyTurnoutAdjust}
           onTurnout={setTurnoutPercent}
-          onReset={() => setCustom({})}
+          onStepTurnout={stepStateTurnout}
+          onReset={() => {
+            setCustom({});
+            setTurnoutAdjust({});
+          }}
           onSelect={select}
           selected={selected}
         />
@@ -473,7 +514,7 @@ export function Briefing() {
             adjustment made for that state alone. Moving the slider from {formatMargin(NATIONAL_GENERIC.marginD)} to D+9.6
             is a delta of +1.0, so every state moves 1.0 point toward the Democrats before those
             state adjustments. Refreshing the page puts the slider back on {formatMargin(NATIONAL_GENERIC.marginD)},
-            clears the state adjustments, and returns turnout to 100% of the 2022 House vote. Nothing is stored.
+            clears the state adjustments, returns turnout to 100% of the 2022 House vote, and clears every state’s 2024 turnout adjustment. Nothing is stored.
           </p>
           <p>
             The turnout-weighted estimate is not the {formatMargin(NATIONAL_GENERIC.marginD)} aggregator average.
@@ -502,8 +543,10 @@ export function Briefing() {
             from 70% to 130%. Expected ballots are that certified total times the slider percent, rounded
             to a whole number. Democratic and Republican votes are the generic shares of those expected ballots.
             Scaling every state by the same percent changes the vote totals and leaves the national margin unchanged,
-            because each state’s weight in the sum stays the same. Refreshing the page returns the slider to 100%.
-            Nothing is stored.
+            because each state’s weight in the sum stays the same. Each row can also move that state by one
+            percentage point of its 2024 U.S. House vote. Changing one state changes the national margin, because
+            that state’s weight changes. Refreshing the page returns the slider to 100% and clears those
+            adjustments. Nothing is stored.
           </p>
           <p>
             Each Senate chance is half Polymarket and half the polls, when the same two
@@ -634,10 +677,12 @@ function countdown(days: number): string {
 function StateEstimator({
   ballots,
   anyCustom,
+  anyTurnoutAdjust,
   turnoutPercent,
   weighted,
   onCustomDelta,
   onTurnout,
+  onStepTurnout,
   onReset,
   onSelect,
   selected,
@@ -650,15 +695,21 @@ function StateEstimator({
     customDelta: number;
     baseline: number;
     baselineUrl: string;
+    votes2024: number;
+    votes2024Url: string;
+    turnoutAdjust: number;
+    percentOf2024: number;
     turnout: number;
     demVotes: number;
     repVotes: number;
   }[];
   anyCustom: boolean;
+  anyTurnoutAdjust: boolean;
   turnoutPercent: number;
   weighted: { demVotes: number; repVotes: number; turnout: number; margin: number };
   onCustomDelta: (abbr: string, value: number) => void;
   onTurnout: (percent: number) => void;
+  onStepTurnout: (abbr: string, direction: 1 | -1) => void;
   onReset: () => void;
   onSelect: (abbr: string) => void;
   selected: string;
@@ -671,13 +722,13 @@ function StateEstimator({
         <h2 id="estimator-heading" className="font-heading text-3xl">
           All 50 states
         </h2>
-        {anyCustom ? (
+        {anyCustom || anyTurnoutAdjust ? (
           <Button variant="outline" className="h-11" onClick={onReset}>
             Reset state adjustments
           </Button>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Every state adjustment starts at zero. Refresh clears these, the national slider, and the turnout slider.
+            Every state adjustment starts at zero. Refresh clears these, the national slider, the turnout slider, and every state’s 2024 turnout adjustment.
           </p>
         )}
       </div>
@@ -687,9 +738,9 @@ function StateEstimator({
         margin, and the national total. A step is half a point. More Republican is the R button. More Democratic
         is the D button. States are listed A to Z.
       </p>
-      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start">
-        <div className="w-full min-w-0 rounded-xl border bg-card p-4 xl:sticky xl:top-4 xl:w-72 xl:shrink-0">
-          <label className="grid gap-2 text-sm">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="w-full min-w-0 rounded-xl border bg-card p-4">
+          <label className="grid max-w-md gap-2 text-sm">
             <span className="font-medium">
               Turnout versus the 2022 House vote
               <span className="font-normal text-muted-foreground" data-testid="turnout-percent">
@@ -732,14 +783,14 @@ function StateEstimator({
             </span>
             .
           </p>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Scaling every state by the same percent changes the vote totals and leaves the national margin unchanged.
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground" data-testid="turnout-margin-note">
+            Scaling every state by the same percent leaves the national margin unchanged. Changing one state’s share of its 2024 House vote changes the national margin, because that state’s weight changes.
           </p>
         </div>
         <div className="max-h-[40rem] min-w-0 w-full flex-1 overflow-auto rounded-xl border bg-card">
           <table className="w-full border-separate border-spacing-0 text-left text-sm" data-testid="state-table">
             <caption className="sr-only">
-              All 50 states in alphabetical order, with generic-ballot margin, per-state adjustment, 2022 House baseline, expected turnout, and Democratic and Republican votes
+              All 50 states in alphabetical order, with generic-ballot margin, per-state adjustment, 2022 House baseline, expected turnout, Democratic and Republican votes, and each state’s expected ballots as a percent of its 2024 House vote
             </caption>
             <thead className="sticky top-0 z-10 bg-card text-xs tracking-wide text-muted-foreground uppercase">
               <tr>
@@ -750,6 +801,7 @@ function StateEstimator({
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Expected turnout</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Democratic votes</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Republican votes</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Percent of 2024 House vote</th>
               </tr>
             </thead>
             <tbody>
@@ -830,6 +882,37 @@ function StateEstimator({
                   >
                     {formatVotes(ballot.repVotes)}
                   </td>
+                  <td className="border-b px-2 py-2 whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-1">
+                      <span
+                        className="w-14 text-right tabular-nums"
+                        data-testid={`turnout-2024-${ballot.abbr}`}
+                        data-percent={ballot.percentOf2024.toFixed(4)}
+                      >
+                        {ballot.percentOf2024.toFixed(1)}%
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 px-2"
+                        data-testid={`turnout-down-${ballot.abbr}`}
+                        aria-label={`Lower ${ballot.name} by 1 percentage point of its 2024 House vote`}
+                        onClick={() => onStepTurnout(ballot.abbr, -1)}
+                      >
+                        Down
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 px-2"
+                        data-testid={`turnout-up-${ballot.abbr}`}
+                        aria-label={`Raise ${ballot.name} by 1 percentage point of its 2024 House vote`}
+                        onClick={() => onStepTurnout(ballot.abbr, 1)}
+                      >
+                        Up
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -862,6 +945,9 @@ function StateDossier({
     repVotes: number;
     turnout: number;
     baseline: number;
+    votes2024: number;
+    percentOf2024: number;
+    turnoutAdjust: number;
   };
   turnoutPercent: number;
 }) {
@@ -957,9 +1043,11 @@ function StateDossier({
         ) : null}
         {ballot ? (
           <p data-testid="state-votes">
-            {ballot.turnout === ballot.baseline
-              ? `At the 2022 House vote of ${formatVotes(ballot.turnout)}: `
-              : `Expected ballots ${formatVotes(ballot.turnout)}, ${turnoutPercent}% of the 2022 House vote of ${formatVotes(ballot.baseline)}: `}
+            {ballot.turnoutAdjust !== 0
+              ? `Expected ballots ${formatVotes(ballot.turnout)}, ${ballot.percentOf2024.toFixed(1)}% of the 2024 House vote of ${formatVotes(ballot.votes2024)}: `
+              : ballot.turnout === ballot.baseline
+                ? `At the 2022 House vote of ${formatVotes(ballot.turnout)}: `
+                : `Expected ballots ${formatVotes(ballot.turnout)}, ${turnoutPercent}% of the 2022 House vote of ${formatVotes(ballot.baseline)}: `}
             Democrats{" "}
             <span className="font-medium tabular-nums" data-testid="state-dem-votes">
               {formatVotes(ballot.demVotes)}
