@@ -187,9 +187,96 @@ export function getState(abbr: string): StateRecord | undefined {
   return byAbbr.get(abbr);
 }
 
+/** Even-swing generic margin before the national slider or a state adjustment. */
+export function evenSwingMargin(trumpMargin2024: number): number {
+  return Number((-trumpMargin2024 + EVEN_SWING).toFixed(1));
+}
+
+/** Democratic and Republican shares cannot leave the two-party remainder. */
+export const GENERIC_MARGIN_CAP = Number((100 - NATIONAL_GENERIC.other).toFixed(1));
+
+export function finalGenericMargin(
+  trumpMargin2024: number,
+  sliderDelta: number,
+  customDelta = 0,
+): { margin: number; raw: number; clamped: boolean } {
+  const raw = Number((evenSwingMargin(trumpMargin2024) + sliderDelta + customDelta).toFixed(1));
+  const margin = Math.max(-GENERIC_MARGIN_CAP, Math.min(GENERIC_MARGIN_CAP, raw));
+  return { margin, raw, clamped: margin !== raw };
+}
+
 export function genericMargin(trumpMargin2024: number, delta = 0): number {
-  const base = Number((-trumpMargin2024 + EVEN_SWING).toFixed(1));
-  return Number((base + delta).toFixed(1));
+  return finalGenericMargin(trumpMargin2024, delta, 0).margin;
+}
+
+/** Other stays at the national generic's other share. D and R split the rest around M. */
+export function ballotShares(margin: number): { dem: number; rep: number; other: number } {
+  const other = NATIONAL_GENERIC.other;
+  const span = 100 - other;
+  return {
+    dem: (span + margin) / 2,
+    rep: (span - margin) / 2,
+    other,
+  };
+}
+
+export function votesForShare(turnout: number, pct: number): number {
+  return Math.round((turnout * pct) / 100);
+}
+
+export type StateBallot = {
+  margin: number;
+  raw: number;
+  clamped: boolean;
+  demPct: number;
+  repPct: number;
+  demVotes: number;
+  repVotes: number;
+  turnout: number;
+};
+
+export function stateBallot(
+  trumpMargin2024: number,
+  turnout: number,
+  sliderDelta: number,
+  customDelta = 0,
+): StateBallot {
+  const { margin, raw, clamped } = finalGenericMargin(trumpMargin2024, sliderDelta, customDelta);
+  const shares = ballotShares(margin);
+  return {
+    margin,
+    raw,
+    clamped,
+    demPct: shares.dem,
+    repPct: shares.rep,
+    demVotes: votesForShare(turnout, shares.dem),
+    repVotes: votesForShare(turnout, shares.rep),
+    turnout,
+  };
+}
+
+export type WeightedNational = {
+  demVotes: number;
+  repVotes: number;
+  turnout: number;
+  demPct: number;
+  repPct: number;
+  margin: number;
+};
+
+export function weightedNational(
+  rows: { demVotes: number; repVotes: number; turnout: number }[],
+): WeightedNational {
+  const demVotes = rows.reduce((sum, row) => sum + row.demVotes, 0);
+  const repVotes = rows.reduce((sum, row) => sum + row.repVotes, 0);
+  const turnout = rows.reduce((sum, row) => sum + row.turnout, 0);
+  const demPct = (demVotes / turnout) * 100;
+  const repPct = (repVotes / turnout) * 100;
+  return { demVotes, repVotes, turnout, demPct, repPct, margin: demPct - repPct };
+}
+
+export function formatVotes(count: number): string {
+  return count.toLocaleString("en-US");
 }
 
 /** Slider value minus the calculated national margin, in points. Positive favors Democrats. */
@@ -264,7 +351,7 @@ export function comparisonCopy(state: StateRecord, delta = 0): string {
         : ` The polling half includes the generic-ballot shift of ${delta > 0 ? "+" : ""}${delta.toFixed(1)}.`;
     return `${leader.name} is ${formatChance(leader.chance)} after splitting the Polymarket price, ${formatChance(leader.polymarket)}, with that candidate’s share of the two-candidate polling average, ${formatChance(leader.poll)}.${shift}`;
   }
-  return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. The polling table does not supply a matching 2026 average, so that price is not averaged with a poll and does not move with the generic-ballot slider.`;
+  return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. The polling table does not supply a matching 2026 average, so that price is not averaged with a poll and does not move with the generic-ballot shift.`;
 }
 
 export function stateHaystack(state: StateRecord): string {

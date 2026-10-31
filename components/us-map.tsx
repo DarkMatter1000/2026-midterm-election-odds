@@ -5,7 +5,6 @@ import { MAP_VIEW, STATE_PATHS } from "@/lib/map-paths";
 import {
   NEUTRAL_FILL,
   formatMargin,
-  genericMargin,
   getState,
   marginFill,
   matchesQuery,
@@ -15,17 +14,17 @@ import {
 export function UsMap({
   selected,
   query,
-  delta,
+  margins,
   onSelect,
 }: {
   selected: string;
   query: string;
-  delta: number;
+  margins: Record<string, number>;
   onSelect: (abbr: string) => void;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const captionAbbr = hover ?? selected;
-  const caption = captionFor(captionAbbr, delta);
+  const caption = captionFor(captionAbbr, margins);
 
   return (
     <figure className="flex flex-col gap-3">
@@ -39,7 +38,7 @@ export function UsMap({
           const state = getState(shape.abbr);
           const active = shape.abbr === selected;
           const dim = query.trim().length > 0 && !pathMatches(shape.abbr, state, query);
-          const fill = fillFor(state, delta);
+          const fill = fillFor(shape.abbr, state, margins);
           return (
             <path
               key={shape.abbr}
@@ -52,7 +51,7 @@ export function UsMap({
               tabIndex={0}
               role="button"
               aria-pressed={active}
-              aria-label={captionFor(shape.abbr, delta)}
+              aria-label={captionFor(shape.abbr, margins)}
               onMouseEnter={() => setHover(shape.abbr)}
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(shape.abbr)}
@@ -81,7 +80,7 @@ export function UsMap({
         <span>D+28</span>
       </div>
       <p className="text-sm text-muted-foreground">
-        Every state starts from the same national change off the 2024 presidential vote. The generic-ballot slider adds the same extra shift everywhere. Gray is the District of Columbia, which this estimate does not cover. Senate chances are listed beside the map, not drawn on it.
+        Every state starts from the same national change off the 2024 presidential vote. The national slider adds the same extra shift everywhere, and a state adjustment moves only that state. The color follows that estimate. Gray is the District of Columbia, which this estimate does not cover. Senate chances are listed beside the map, not drawn on it.
       </p>
     </figure>
   );
@@ -99,16 +98,20 @@ function pathMatches(
   return state ? matchesQuery(state, query) : false;
 }
 
-function fillFor(state: StateRecord | undefined, delta: number): string {
-  if (!state) return NEUTRAL_FILL;
-  return marginFill(genericMargin(state.trumpMargin2024, delta));
+function fillFor(
+  abbr: string,
+  state: StateRecord | undefined,
+  margins: Record<string, number>,
+): string {
+  if (!state || margins[abbr] === undefined) return NEUTRAL_FILL;
+  return marginFill(margins[abbr]);
 }
 
-function captionFor(abbr: string, delta: number): string {
+function captionFor(abbr: string, margins: Record<string, number>): string {
   if (abbr === "DC") {
     return "District of Columbia. No Senate race, and not included in the state generic-ballot estimate.";
   }
   const state = getState(abbr);
-  if (!state) return abbr;
-  return `${state.name}. Generic ballot estimate ${formatMargin(genericMargin(state.trumpMargin2024, delta))}.`;
+  if (!state || margins[abbr] === undefined) return abbr;
+  return `${state.name}. Generic ballot estimate ${formatMargin(margins[abbr])}.`;
 }
