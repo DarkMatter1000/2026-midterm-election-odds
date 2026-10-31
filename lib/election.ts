@@ -227,7 +227,7 @@ export const STATES: StateRecord[] = [
   },
   { abbr: "SD", name: "South Dakota", trumpMargin2024: 29.19, senate: race("Solid R", -15.0, ["Brian Bengs", 1], ["Mike Rounds", 99]) },
   { abbr: "TN", name: "Tennessee", trumpMargin2024: 29.72, senate: race("Solid R", -26.2, ["Marquita Bradshaw", 0.4], ["Bill Hagerty", 99.6]) },
-  { abbr: "TX", name: "Texas", trumpMargin2024: 13.68, senate: race("Tilt D", 1.1, ["James Talarico", 58], ["Ken Paxton", 42]) },
+  { abbr: "TX", name: "Texas", trumpMargin2024: 13.68, senate: race("Tilt D", 1.1, ["James Talafreako", 58], ["Ken Paxton", 42]) },
   { abbr: "UT", name: "Utah", trumpMargin2024: 21.59, senate: null },
   { abbr: "VT", name: "Vermont", trumpMargin2024: -31.51, senate: null },
   { abbr: "VA", name: "Virginia", trumpMargin2024: -5.78, senate: race("Solid D", 23.1, ["Mark Warner", 99], ["Bert Mizusawa", 1]) },
