@@ -21,23 +21,44 @@ import {
   genericMargin,
   getState,
   matchesQuery,
+  scenarioGeneric,
+  senateProjection,
   type StateRecord,
 } from "@/lib/election";
+import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
+import { HOUSE_2024 } from "@/lib/house-2024";
 import {
   HOUSE_CONTROL,
   POLYMARKET_AS_OF,
   SENATE_CONTROL,
   averageShares,
   blendsPolls,
+  closeness,
   formatChance,
+  marginSides,
   partyName,
+  pollMarginPoints,
   quotedChances,
   type SenateRace,
   type Share,
 } from "@/lib/senate-live";
 
+function deltaLabel(delta: number): string {
+  const abs = Math.abs(delta).toFixed(1);
+  const unit = abs === "1.0" ? "point" : "points";
+  if (delta === 0) return `the calculated ${formatMargin(NATIONAL_GENERIC.marginD)}`;
+  const direction = delta > 0 ? "more Democratic" : "more Republican";
+  return `${abs} ${unit} ${direction} than the calculated ${formatMargin(NATIONAL_GENERIC.marginD)}`;
+}
+
 export function Briefing() {
   const [query, setQuery] = useState("");
+  const [slider, setSlider] = useState(NATIONAL_GENERIC.marginD);
+  const scenario = scenarioGeneric(slider);
+  const delta = scenario.delta;
+  const races = [...SENATE_RACES].sort(
+    (a, b) => closeness(a.senate!, delta) - closeness(b.senate!, delta),
+  );
   const selected = useSyncExternalStore(subscribeToHash, readHash, () => "KS");
   const days = useSyncExternalStore(subscribeToNothing, () => daysUntilElection(), () => UNKNOWN_DAYS);
 
@@ -55,7 +76,7 @@ export function Briefing() {
     }
   }
 
-  const filtered = SENATE_RACES.filter((state) => matchesQuery(state, query));
+  const filtered = races.filter((state) => matchesQuery(state, query));
   const state = selected === "DC" ? undefined : getState(selected);
 
   return (
@@ -94,12 +115,42 @@ export function Briefing() {
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Generic ballot
             </h2>
-            <p className="mt-3 font-heading text-4xl tabular-nums">
-              {formatMargin(NATIONAL_GENERIC.marginD)}
+            <p className="mt-3 font-heading text-4xl tabular-nums" data-testid="national-margin">
+              {formatMargin(scenario.marginD)}
             </p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Democrats {NATIONAL_GENERIC.dem}%, Republicans {NATIONAL_GENERIC.rep}%,
-              other or undecided {NATIONAL_GENERIC.other}%. Average of five aggregators, {BALLOT_AS_OF}.
+              Democrats {scenario.dem.toFixed(1)}%, Republicans {scenario.rep.toFixed(1)}%,
+              other or undecided {scenario.other.toFixed(1)}%.{" "}
+              {delta === 0
+                ? `Average of five aggregators, ${BALLOT_AS_OF}.`
+                : `The ${BALLOT_AS_OF} average was Democrats ${NATIONAL_GENERIC.dem.toFixed(1)}% and Republicans ${NATIONAL_GENERIC.rep.toFixed(1)}%. Half the delta is added to Democrats and subtracted from Republicans. Other stays ${NATIONAL_GENERIC.other.toFixed(1)}%.`}
+            </p>
+            <label className="mt-4 grid gap-2 text-sm">
+              <span className="font-medium" data-testid="generic-delta">
+                {formatMargin(scenario.marginD)}
+                <span className="font-normal text-muted-foreground"> · {deltaLabel(delta)}</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={16}
+                step={0.1}
+                value={scenario.marginD}
+                data-testid="generic-slider"
+                aria-label="National generic ballot scenario"
+                aria-valuemin={0}
+                aria-valuemax={16}
+                aria-valuenow={scenario.marginD}
+                aria-valuetext={`${formatMargin(scenario.marginD)}. ${deltaLabel(delta)}`}
+                onChange={(event) => setSlider(Number(event.target.value))}
+                className="h-11 w-full cursor-pointer accent-foreground"
+              />
+            </label>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Delta = this slider minus {NATIONAL_GENERIC.marginD.toFixed(1)}. A delta of +1.0
+              adds 1.0 point toward Democrats on every state generic-ballot estimate and on
+              every Senate polling margin. The range runs from even to D+16.0. Refresh the page
+              to restore {formatMargin(NATIONAL_GENERIC.marginD)}. The slider is not saved.
             </p>
           </article>
           <article className="bg-card p-5">
@@ -138,8 +189,9 @@ export function Briefing() {
         <section aria-label="Closest Senate races" className="flex flex-col gap-3">
           <h2 className="font-heading text-2xl">Closest Senate races</h2>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {SENATE_RACES.slice(0, 8).map((raceState) => {
-              const leader = [...quotedChances(raceState.senate!)].sort((a, b) => b.chance - a.chance)[0];
+            {races.slice(0, 8).map((raceState) => {
+              const leader = [...quotedChances(raceState.senate!, delta)].sort((a, b) => b.chance - a.chance)[0];
+              const projection = senateProjection(raceState, delta);
               return (
                 <Button
                   key={raceState.abbr}
@@ -151,6 +203,9 @@ export function Briefing() {
                   <span className="tabular-nums text-current/80">
                     {leader.party} {formatChance(leader.chance).replace(" in 100", "")}
                   </span>
+                  {projection ? (
+                    <span className="tabular-nums text-current/80">{projection.text}</span>
+                  ) : null}
                 </Button>
               );
             })}
@@ -175,7 +230,7 @@ export function Briefing() {
                 />
               </div>
             </div>
-            <UsMap selected={selected} query={query} onSelect={select} />
+            <UsMap selected={selected} query={query} delta={delta} onSelect={select} />
             <label className="grid gap-1 text-sm">
               <span className="text-muted-foreground">Jump to a state</span>
               <select
@@ -192,7 +247,7 @@ export function Briefing() {
               </select>
             </label>
           </div>
-          <StateDossier abbr={selected} state={state} />
+          <StateDossier abbr={selected} state={state} delta={delta} />
         </section>
 
         <section className="flex flex-col gap-4" aria-labelledby="senate-board-heading">
@@ -216,6 +271,7 @@ export function Briefing() {
                 <RaceRow
                   key={raceState.abbr}
                   state={raceState}
+                  delta={delta}
                   selected={selected === raceState.abbr}
                   onSelect={() => select(raceState.abbr)}
                 />
@@ -295,14 +351,46 @@ export function Briefing() {
             blowouts a uniform shift can run past what a real ballot would show.
           </p>
           <p>
+            The slider sets a scenario national margin. Delta is that slider minus {NATIONAL_GENERIC.marginD.toFixed(1)}.
+            The state estimate shown on the map is the even-swing figure plus delta. Moving
+            the slider from {formatMargin(NATIONAL_GENERIC.marginD)} to D+9.6 is a delta of +1.0,
+            so every state moves 1.0 point toward the Democrats. Refreshing the page puts the
+            slider back on {formatMargin(NATIONAL_GENERIC.marginD)}. Nothing about the slider is stored.
+          </p>
+          <p>
             Each Senate chance is half Polymarket and half the polls, when the same two
-            candidates appear in both. Polymarket contributes its Yes price. Each polling
-            aggregator contributes that candidate’s share of the two-candidate average,
-            leaving undecided voters out. Those aggregator shares are averaged first, then
-            split evenly with the Polymarket price. A candidate at 60 in 100 still loses
-            about two times in five. Where the aggregators do not publish a matching 2026
-            average, or the candidate lists do not line up, the chance is the Polymarket
-            price alone and the polls stay in the table.
+            candidates appear in both. Polymarket contributes its Yes price, and that price
+            stays the October 31 snapshot. Each polling aggregator contributes that candidate’s
+            share of the two-candidate average, leaving undecided voters out. Those aggregator
+            shares are averaged first. The slider then moves only that polling half: a delta
+            of +1.0 adds 0.5 points of two-party share to the Democrat, or to the independent
+            challenger where there is no Democrat, and subtracts 0.5 from the Republican.
+            That shifted poll share is split evenly with the unchanged Polymarket price, then
+            the chances are scaled so they still sum to about 100. A candidate at 60 in 100
+            still loses about two times in five.
+          </p>
+          <p>
+            The projected Senate margin is separate from the chance. Where a 2026 average
+            names both the Democrat (or the independent challenger) and the Republican, the
+            margin is that Democrat’s percentage minus the Republican’s, averaged across
+            those polls, plus delta. Where there is no such average, the page still shows a
+            margin, but it is the state’s generic-ballot estimate and it is labeled that way.
+            It is not a fake poll, and the chance in those races stays the Polymarket price.
+            Montana has a FiftyPlusOne average that includes Seth Bodnar, who is not on the
+            Polymarket contract, so the chance stays Polymarket and the margin is Alani
+            Bankhead’s percentage minus Kurt Alme’s, plus delta.
+          </p>
+          <p>
+            The 2024 House line next to the presidential margin is the statewide popular vote
+            for Democratic and Republican House candidates, from that state’s Wikipedia page.
+            It is a comparison. It is not an input to the generic-ballot estimate. Alaska uses
+            the first-round vote, not the ranked-choice final round.
+          </p>
+          <p>
+            The electorate table is the 2024 presidential exit poll: the share of voters by
+            age, ethnicity, and gender. Edison Research conducted it for the National Election
+            Pool, and CNN published the state tables. Ten states have one. The other forty say
+            so. Census population is not used as a stand-in.
           </p>
           <p>
             The Texas Democrat is listed as James Talafreako. The Polymarket contract and
@@ -343,6 +431,15 @@ export function Briefing() {
                 2024 presidential results by state
               </a>
             </li>
+            <li>
+              2024 House popular vote, from each state’s Wikipedia page, linked on the state dossier
+            </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://www.cnn.com/election/2024/exit-polls">
+                CNN / Edison Research, 2024 presidential exit polls
+              </a>
+              , for the ten states that have a published state exit poll
+            </li>
           </ul>
         </section>
       </main>
@@ -379,9 +476,11 @@ function countdown(days: number): string {
 function StateDossier({
   abbr,
   state,
+  delta,
 }: {
   abbr: string;
   state: StateRecord | undefined;
+  delta: number;
 }) {
   if (abbr === "DC" || !state) {
     return (
@@ -396,7 +495,9 @@ function StateDossier({
     );
   }
 
-  const generic = genericMargin(state.trumpMargin2024);
+  const generic = genericMargin(state.trumpMargin2024, delta);
+  const house = HOUSE_2024[state.abbr];
+  const exitPoll = EXIT_POLLS[state.abbr];
 
   return (
     <aside id="state-dossier" className="flex flex-col gap-5 rounded-xl border bg-card p-5 lg:sticky lg:top-4">
@@ -406,20 +507,32 @@ function StateDossier({
         </p>
         <h2 className="font-heading text-4xl tracking-tight">{state.name}</h2>
       </div>
-      <p className="text-base leading-7">{comparisonCopy(state)}</p>
+      <p className="text-base leading-7">{comparisonCopy(state, delta)}</p>
       <div className="flex flex-col gap-3">
         <MarginTrack marginD={generic} label="Generic ballot" />
         {state.senate ? null : (
           <p className="text-sm text-muted-foreground">No Senate race on November 3.</p>
         )}
       </div>
-      <p className="text-sm leading-6 text-muted-foreground">
+      <p className="text-sm leading-6 text-muted-foreground" data-testid="state-generic">
         2024 presidential margin {formatMargin(-state.trumpMargin2024, 2)}.
-        National shift D+{EVEN_SWING.toFixed(2)}.
+        National shift D+{EVEN_SWING.toFixed(2)}
+        {delta === 0 ? "" : `, then ${delta > 0 ? "+" : ""}${delta.toFixed(1)} from the slider`}.
         Estimate {formatMargin(generic)}.
       </p>
+      {house ? (
+        <p className="text-sm leading-6 text-muted-foreground" data-testid="house-2024">
+          2024 House vote {formatMargin(house.marginD)} (Democrats {house.dem.toFixed(1)}%, Republicans {house.rep.toFixed(1)}%).{" "}
+          <a className="underline underline-offset-4" href={house.url}>
+            Wikipedia
+          </a>
+          .
+          {house.note ? ` ${house.note}` : ""}
+        </p>
+      ) : null}
+      <Demographics poll={exitPoll} stateName={state.name} />
       {state.senate ? <PollTable race={state.senate} /> : null}
-      {state.senate ? <ChanceBlock race={state.senate} /> : null}
+      {state.senate ? <ChanceBlock race={state.senate} state={state} delta={delta} /> : null}
       {state.senate?.caveat ? (
         <p className="text-sm leading-6 text-muted-foreground">{state.senate.caveat}</p>
       ) : null}
@@ -514,8 +627,71 @@ function leadLabel(shares: Share[]): string {
   return `${last} +${gap.toFixed(1)}`;
 }
 
-function ChanceBlock({ race }: { race: SenateRace }) {
-  const people = quotedChances(race);
+function Demographics({ poll, stateName }: { poll: ExitPoll | undefined; stateName: string }) {
+  if (!poll) {
+    return (
+      <div className="flex flex-col gap-2" data-testid="demographics">
+        <h3 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+          2024 electorate
+        </h3>
+        <p className="text-sm leading-6 text-muted-foreground">
+          No 2024 exit poll was published for {stateName}. The National Election Pool state
+          exit polls, reported by CNN, cover {EXIT_POLL_STATE_NAMES.join(", ")}. Census
+          population is not shown in its place.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="demographics">
+      <h3 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+        2024 electorate
+      </h3>
+      <p className="text-sm leading-6 text-muted-foreground">
+        Share of presidential voters in the {poll.source}, {poll.respondents.toLocaleString("en-US")} respondents.{" "}
+        <a className="underline underline-offset-4" href={poll.url}>
+          CNN
+        </a>
+        . Figures are rounded by the source and may not sum to 100.
+      </p>
+      <div className="grid gap-3">
+        <DemoTable title="Age" groups={poll.age} />
+        <DemoTable title="Ethnicity" groups={poll.ethnicity} />
+        <DemoTable title="Gender" groups={poll.gender} />
+      </div>
+    </div>
+  );
+}
+
+function DemoTable({ title, groups }: { title: string; groups: { label: string; pct: number }[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <caption className="sr-only">{title} share of the 2024 electorate</caption>
+        <thead className="border-b text-xs tracking-wide text-muted-foreground uppercase">
+          <tr>
+            <th scope="col" className="py-1 pr-3 font-medium">{title}</th>
+            <th scope="col" className="py-1 text-right font-medium">Voters</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <tr key={group.label} className="border-b last:border-0">
+              <th scope="row" className="py-1 pr-3 font-medium">{group.label}</th>
+              <td className="py-1 text-right tabular-nums">{group.pct}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ChanceBlock({ race, state, delta }: { race: SenateRace; state: StateRecord; delta: number }) {
+  const people = quotedChances(race, delta);
+  const projection = senateProjection(state, delta);
+  const base = pollMarginPoints(race);
   const total = people.reduce((sum, person) => sum + person.chance, 0);
   const blended = blendsPolls(race);
 
@@ -535,6 +711,7 @@ function ChanceBlock({ race }: { race: SenateRace }) {
           />
         ))}
       </div>
+      {projection ? <ProjectionLine race={race} projection={projection} base={base} delta={delta} /> : null}
       <ul className="flex flex-col gap-2">
         {people.map((person) => (
           <li key={person.name} className="flex items-baseline justify-between gap-3 text-sm">
@@ -551,7 +728,9 @@ function ChanceBlock({ race }: { race: SenateRace }) {
               {blended ? (
                 <span className="block text-xs text-muted-foreground">
                   Polymarket {formatChance(person.polymarket)}
-                  {person.poll !== null ? ` · polls ${formatChance(person.poll)}` : ""}
+                  {person.poll !== null
+                    ? ` · polls ${formatChance(person.poll)}${delta !== 0 ? " after the slider" : ""}`
+                    : ""}
                 </span>
               ) : null}
             </span>
@@ -563,18 +742,46 @@ function ChanceBlock({ race }: { race: SenateRace }) {
   );
 }
 
+function ProjectionLine({
+  race,
+  projection,
+  base,
+  delta,
+}: {
+  race: SenateRace;
+  projection: NonNullable<ReturnType<typeof senateProjection>>;
+  base: number | null;
+  delta: number;
+}) {
+  const sides = marginSides(race);
+  const detail =
+    projection.basis === "poll" && sides && base !== null
+      ? `${sides.left.split(" ").slice(-1)[0]}’s polling percentage minus ${sides.right.split(" ").slice(-1)[0]}’s is ${Number(base.toFixed(1)) > 0 ? "+" : ""}${Number(base.toFixed(1)).toFixed(1)} points. The slider adds ${delta > 0 ? "+" : ""}${delta.toFixed(1)}.`
+      : "This is the state’s generic-ballot estimate, not a 2026 Senate poll. The chance stays the Polymarket price.";
+
+  return (
+    <p className="text-sm leading-6" data-testid="senate-margin">
+      <span className="font-medium">Projected margin {projection.text}.</span>{" "}
+      <span className="text-muted-foreground">{detail}</span>
+    </p>
+  );
+}
+
 function RaceRow({
   state,
+  delta,
   selected,
   onSelect,
 }: {
   state: StateRecord;
+  delta: number;
   selected: boolean;
   onSelect: () => void;
 }) {
   const race = state.senate!;
-  const people = quotedChances(race);
+  const people = quotedChances(race, delta);
   const leader = [...people].sort((a, b) => b.chance - a.chance)[0];
+  const projection = senateProjection(state, delta);
 
   return (
     <article className={`grid gap-3 border-b p-4 last:border-0 md:grid-cols-[11rem_1fr_8rem] ${selected ? "bg-muted/70" : ""}`}>
@@ -601,9 +808,20 @@ function RaceRow({
             <span className="tabular-nums">{formatChance(person.chance)}</span>
           </li>
         ))}
+        {projection ? (
+          <li className="text-muted-foreground">
+            Projected margin {projection.text}
+            {projection.basis === "generic" ? " · generic ballot, not a poll" : ""}
+          </li>
+        ) : null}
       </ul>
       <p className="font-heading text-2xl tabular-nums md:text-right">
         {leader.party} {formatChance(leader.chance).replace(" in 100", "")}
+        {projection ? (
+          <span className="mt-1 block font-sans text-sm font-normal text-muted-foreground">
+            {projection.text}
+          </span>
+        ) : null}
       </p>
     </article>
   );

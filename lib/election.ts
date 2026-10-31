@@ -11,7 +11,9 @@ import {
   blendsPolls,
   closeness,
   formatChance,
+  formatPollMargin,
   namesInRace,
+  pollMarginPoints,
   quotedChances,
   type SenateRace,
 } from "@/lib/senate-live";
@@ -185,8 +187,60 @@ export function getState(abbr: string): StateRecord | undefined {
   return byAbbr.get(abbr);
 }
 
-export function genericMargin(trumpMargin2024: number): number {
-  return Number((-trumpMargin2024 + EVEN_SWING).toFixed(1));
+export function genericMargin(trumpMargin2024: number, delta = 0): number {
+  const base = Number((-trumpMargin2024 + EVEN_SWING).toFixed(1));
+  return Number((base + delta).toFixed(1));
+}
+
+/** Slider value minus the calculated national margin, in points. Positive favors Democrats. */
+export function genericDelta(sliderMargin: number): number {
+  return Number((sliderMargin - NATIONAL_GENERIC.marginD).toFixed(1));
+}
+
+export function scenarioGeneric(sliderMargin: number): {
+  marginD: number;
+  delta: number;
+  dem: number;
+  rep: number;
+  other: number;
+} {
+  const delta = genericDelta(sliderMargin);
+  const marginD = Number(sliderMargin.toFixed(1));
+  if (delta === 0) {
+    return {
+      marginD,
+      delta,
+      dem: NATIONAL_GENERIC.dem,
+      rep: NATIONAL_GENERIC.rep,
+      other: NATIONAL_GENERIC.other,
+    };
+  }
+  return {
+    marginD,
+    delta,
+    dem: Math.round((NATIONAL_GENERIC.dem + delta / 2) * 10) / 10,
+    rep: Math.round((NATIONAL_GENERIC.rep - delta / 2) * 10) / 10,
+    other: NATIONAL_GENERIC.other,
+  };
+}
+
+export type SenateProjection = {
+  basis: "poll" | "generic";
+  /** Positive means the Democrat, or the independent challenger, is ahead. For a generic-ballot estimate, positive means Democrats. */
+  margin: number;
+  text: string;
+};
+
+export function senateProjection(state: StateRecord, delta = 0): SenateProjection | null {
+  const race = state.senate;
+  if (!race) return null;
+  const base = pollMarginPoints(race);
+  if (base !== null) {
+    const margin = Number((base + delta).toFixed(1));
+    return { basis: "poll", margin, text: formatPollMargin(race, margin) };
+  }
+  const margin = genericMargin(state.trumpMargin2024, delta);
+  return { basis: "generic", margin, text: formatMargin(margin) };
 }
 
 export function formatMargin(marginD: number, digits = 1): string {
@@ -196,17 +250,21 @@ export function formatMargin(marginD: number, digits = 1): string {
   return rounded > 0 ? `D+${abs}` : `R+${abs}`;
 }
 
-export function comparisonCopy(state: StateRecord): string {
+export function comparisonCopy(state: StateRecord, delta = 0): string {
   const race = state.senate;
   if (!race) {
     return "No U.S. Senate seat is on the November 3 ballot in this state.";
   }
-  const quoted = quotedChances(race);
+  const quoted = quotedChances(race, delta);
   const leader = [...quoted].sort((a, b) => b.chance - a.chance)[0];
   if (blendsPolls(race) && leader.poll !== null) {
-    return `${leader.name} is ${formatChance(leader.chance)} after splitting the Polymarket price, ${formatChance(leader.polymarket)}, with that candidate’s share of the two-candidate polling average, ${formatChance(leader.poll)}.`;
+    const shift =
+      delta === 0
+        ? ""
+        : ` The polling half includes the generic-ballot shift of ${delta > 0 ? "+" : ""}${delta.toFixed(1)}.`;
+    return `${leader.name} is ${formatChance(leader.chance)} after splitting the Polymarket price, ${formatChance(leader.polymarket)}, with that candidate’s share of the two-candidate polling average, ${formatChance(leader.poll)}.${shift}`;
   }
-  return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. The polling table does not supply a matching 2026 average, so that price is not averaged with a poll.`;
+  return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. The polling table does not supply a matching 2026 average, so that price is not averaged with a poll and does not move with the generic-ballot slider.`;
 }
 
 export function stateHaystack(state: StateRecord): string {

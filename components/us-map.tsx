@@ -15,15 +15,17 @@ import {
 export function UsMap({
   selected,
   query,
+  delta,
   onSelect,
 }: {
   selected: string;
   query: string;
+  delta: number;
   onSelect: (abbr: string) => void;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const captionAbbr = hover ?? selected;
-  const caption = captionFor(captionAbbr);
+  const caption = captionFor(captionAbbr, delta);
 
   return (
     <figure className="flex flex-col gap-3">
@@ -37,7 +39,7 @@ export function UsMap({
           const state = getState(shape.abbr);
           const active = shape.abbr === selected;
           const dim = query.trim().length > 0 && !pathMatches(shape.abbr, state, query);
-          const fill = fillFor(state);
+          const fill = fillFor(state, delta);
           return (
             <path
               key={shape.abbr}
@@ -50,7 +52,7 @@ export function UsMap({
               tabIndex={0}
               role="button"
               aria-pressed={active}
-              aria-label={captionFor(shape.abbr)}
+              aria-label={captionFor(shape.abbr, delta)}
               onMouseEnter={() => setHover(shape.abbr)}
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(shape.abbr)}
@@ -79,7 +81,7 @@ export function UsMap({
         <span>D+28</span>
       </div>
       <p className="text-sm text-muted-foreground">
-        Every state is shifted by the same national change from the 2024 presidential vote. Gray is the District of Columbia, which this estimate does not cover. Senate chances are listed beside the map, not drawn on it.
+        Every state starts from the same national change off the 2024 presidential vote. The generic-ballot slider adds the same extra shift everywhere. Gray is the District of Columbia, which this estimate does not cover. Senate chances are listed beside the map, not drawn on it.
       </p>
     </figure>
   );
@@ -97,16 +99,16 @@ function pathMatches(
   return state ? matchesQuery(state, query) : false;
 }
 
-function fillFor(state: StateRecord | undefined): string {
+function fillFor(state: StateRecord | undefined, delta: number): string {
   if (!state) return NEUTRAL_FILL;
-  return marginFill(genericMargin(state.trumpMargin2024));
+  return marginFill(genericMargin(state.trumpMargin2024, delta));
 }
 
-function captionFor(abbr: string): string {
+function captionFor(abbr: string, delta: number): string {
   if (abbr === "DC") {
     return "District of Columbia. No Senate race, and not included in the state generic-ballot estimate.";
   }
   const state = getState(abbr);
   if (!state) return abbr;
-  return `${state.name}. Generic ballot estimate ${formatMargin(genericMargin(state.trumpMargin2024))}.`;
+  return `${state.name}. Generic ballot estimate ${formatMargin(genericMargin(state.trumpMargin2024, delta))}.`;
 }

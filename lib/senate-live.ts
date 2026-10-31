@@ -412,18 +412,79 @@ export type QuotedChance = {
   poll: number | null;
 };
 
-/** Half the published Polymarket price, half the two-candidate polling share. Polymarket alone when there is no matching average. */
-export function quotedChances(race: SenateRace): QuotedChance[] {
+/** The Democrat, or the independent challenger when the ballot has no Democrat, and the Republican. */
+export function marginSides(race: SenateRace): { left: string; right: string } | null {
+  const rep = race.candidates.find((candidate) => candidate.party === "R");
+  const dem = race.candidates.find((candidate) => candidate.party === "D");
+  const independent = race.candidates.find((candidate) => candidate.party === "I");
+  if (rep && dem) return { left: dem.name, right: rep.name };
+  if (rep && independent) return { left: independent.name, right: rep.name };
+  return null;
+}
+
+/**
+ * Democrat (or independent challenger) percentage minus Republican percentage,
+ * averaged across polls that publish both. This is the raw share gap, not a
+ * two-party recalculation. Null when no poll names both sides.
+ */
+export function pollMarginPoints(race: SenateRace): number | null {
+  const sides = marginSides(race);
+  if (!sides) return null;
+  const margins: number[] = [];
+  for (const poll of race.polls) {
+    const left = shareOf(poll, sides.left);
+    const right = shareOf(poll, sides.right);
+    if (left === undefined || right === undefined) continue;
+    margins.push(left - right);
+  }
+  if (margins.length === 0) return null;
+  return margins.reduce((sum, value) => sum + value, 0) / margins.length;
+}
+
+function lastName(name: string): string {
+  return name.split(" ").slice(-1)[0];
+}
+
+/** D+ / R+ when a Democrat is in the subtraction, otherwise the leader's last name. */
+export function formatPollMargin(race: SenateRace, margin: number): string {
+  const sides = marginSides(race);
+  const rounded = round1(margin);
+  if (!sides || rounded === 0) return rounded === 0 ? "Even" : "—";
+  const left = race.candidates.find((candidate) => candidate.name === sides.left);
+  const abs = Math.abs(rounded).toFixed(1);
+  if (left?.party === "D") return rounded > 0 ? `D+${abs}` : `R+${abs}`;
+  const leader = rounded > 0 ? sides.left : sides.right;
+  return `${lastName(leader)} +${abs}`;
+}
+
+/**
+ * Half the published Polymarket price, half the two-candidate polling share.
+ * Polymarket alone when there is no matching average.
+ * `delta` is the generic-ballot slider minus the calculated national margin.
+ * It moves only the polling half: +1.0 margin adds 0.5 points of two-party
+ * share to the Democrat or independent challenger and subtracts 0.5 from the
+ * Republican. The Polymarket price stays the snapshot. Chances are then
+ * renormalized so they still sum to about 100.
+ */
+export function quotedChances(race: SenateRace, delta = 0): QuotedChance[] {
   const blend = blendsPolls(race);
+  const sides = marginSides(race);
   const rows = race.candidates.map((candidate) => {
     const poll = pollChance(race, candidate.name);
-    const combined = blend && poll !== null ? 0.5 * candidate.price + 0.5 * poll : candidate.price;
+    let adjusted = poll;
+    if (blend && poll !== null && sides && delta !== 0) {
+      const shift =
+        candidate.name === sides.left ? delta / 2 : candidate.name === sides.right ? -delta / 2 : 0;
+      adjusted = Math.min(100, Math.max(0, poll + shift));
+    }
+    const combined =
+      blend && adjusted !== null ? 0.5 * candidate.price + 0.5 * adjusted : candidate.price;
     return {
       name: candidate.name,
       party: candidate.party,
       chance: combined,
       polymarket: candidate.price,
-      poll: poll === null ? null : round1(poll),
+      poll: adjusted === null ? null : round1(adjusted),
     };
   });
   const total = rows.reduce((sum, row) => sum + row.chance, 0);
@@ -458,8 +519,8 @@ export function namesInRace(race: SenateRace): string[] {
 }
 
 /** How far the leader’s quoted chance is from an even race. Smaller means closer. */
-export function closeness(race: SenateRace): number {
-  const chances = quotedChances(race).map((candidate) => candidate.chance);
+export function closeness(race: SenateRace, delta = 0): number {
+  const chances = quotedChances(race, delta).map((candidate) => candidate.chance);
   const leader = Math.max(...chances);
   return Math.abs(leader - 50);
 }
