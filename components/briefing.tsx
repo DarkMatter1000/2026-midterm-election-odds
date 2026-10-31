@@ -22,6 +22,7 @@ import {
   getState,
   matchesQuery,
   scenarioGeneric,
+  scaledTurnout,
   senateProjection,
   stateBallot,
   weightedNational,
@@ -69,6 +70,7 @@ export function Briefing() {
   const [query, setQuery] = useState("");
   const [slider, setSlider] = useState(NATIONAL_GENERIC.marginD);
   const [custom, setCustom] = useState<Record<string, number>>({});
+  const [turnoutPercent, setTurnoutPercent] = useState(100);
   const scenario = scenarioGeneric(slider);
   const delta = scenario.delta;
 
@@ -93,14 +95,23 @@ export function Briefing() {
   }
 
   const ballots = STATES.map((state) => {
+    const baseline = HOUSE_2022[state.abbr].total;
     const ballot = stateBallot(
       state.trumpMargin2024,
-      HOUSE_2022[state.abbr].total,
+      scaledTurnout(baseline, turnoutPercent),
       delta,
       customDelta(state.abbr),
     );
-    return { ...ballot, abbr: state.abbr, name: state.name, customDelta: customDelta(state.abbr) };
+    return {
+      ...ballot,
+      abbr: state.abbr,
+      name: state.name,
+      customDelta: customDelta(state.abbr),
+      baseline,
+      baselineUrl: HOUSE_2022[state.abbr].url,
+    };
   });
+  const baselineNational = ballots.reduce((sum, row) => sum + row.baseline, 0);
   const ballotByAbbr = new Map(ballots.map((ballot) => [ballot.abbr, ballot]));
   const margins = Object.fromEntries(ballots.map((ballot) => [ballot.abbr, ballot.margin]));
   const weighted = weightedNational(ballots);
@@ -130,7 +141,7 @@ export function Briefing() {
   const state = selected === "DC" ? undefined : getState(selected);
 
   return (
-    <div className="min-h-full">
+    <div className="min-h-full w-full min-w-0">
       <div className="flex h-1" aria-hidden>
         <div className="h-full flex-1" style={{ background: "#8f2d2d" }} />
         <div className="h-full flex-1" style={{ background: "#1e4f8f" }} />
@@ -159,7 +170,7 @@ export function Briefing() {
         </p>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 pb-16 sm:px-6">
+      <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-10 px-4 pb-16 sm:px-6 [&>*]:min-w-0">
         <section aria-label="National picture" className="grid items-start overflow-hidden rounded-xl border bg-border sm:grid-cols-3">
           <article className="bg-card p-5">
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
@@ -188,10 +199,14 @@ export function Briefing() {
               <span className="tabular-nums" data-testid="national-turnout">
                 {formatVotes(weighted.turnout)}
               </span>{" "}
-              ballots, the 2022 House vote in the 50 states. That is the turnout anchor, not a forecast of how many people will vote in 2026.
+              expected ballots
+              {turnoutPercent === 100
+                ? ", the 2022 House vote in the 50 states."
+                : `, ${turnoutPercent}% of the 2022 House vote in the 50 states (${formatVotes(baselineNational)}).`}{" "}
+              That 2022 total is the turnout anchor, not a forecast of how many people will vote in 2026.
             </p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              This margin is Democratic votes minus Republican votes, divided by that 2022 total.
+              This margin is Democratic votes minus Republican votes, divided by those expected ballots.
               A state moves it in proportion to its 2022 House vote, not by a flat shift and not by an equal share of 50 states.
               It is a different statistic from the {formatMargin(NATIONAL_GENERIC.marginD)} aggregator average.
             </p>
@@ -231,7 +246,7 @@ export function Briefing() {
               adds 1.0 point toward Democrats on every state generic-ballot estimate first, and on
               every Senate polling margin. A per-state adjustment is applied after that, and only
               to that state. The range runs from even to D+16.0. Refresh the page
-              to restore {formatMargin(NATIONAL_GENERIC.marginD)} and clear state adjustments. Nothing is saved.
+              to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, and return turnout to 100% of the 2022 House vote. Nothing is saved.
             </p>
           </article>
           <article className="bg-card p-5">
@@ -336,13 +351,17 @@ export function Briefing() {
             customDelta={state ? customDelta(state.abbr) : 0}
             onCustomDelta={state ? (value) => setCustomDelta(state.abbr, value) : undefined}
             ballot={state ? ballotByAbbr.get(state.abbr) : undefined}
+            turnoutPercent={turnoutPercent}
           />
         </section>
 
         <StateEstimator
           ballots={ballots}
           anyCustom={anyCustom}
+          turnoutPercent={turnoutPercent}
+          weighted={weighted}
           onCustomDelta={setCustomDelta}
+          onTurnout={setTurnoutPercent}
           onReset={() => setCustom({})}
           onSelect={select}
           selected={selected}
@@ -453,8 +472,8 @@ export function Briefing() {
             The state estimate shown on the map is the even-swing figure plus that delta, plus any
             adjustment made for that state alone. Moving the slider from {formatMargin(NATIONAL_GENERIC.marginD)} to D+9.6
             is a delta of +1.0, so every state moves 1.0 point toward the Democrats before those
-            state adjustments. Refreshing the page puts the slider back on {formatMargin(NATIONAL_GENERIC.marginD)}
-            and clears the state adjustments. Nothing is stored.
+            state adjustments. Refreshing the page puts the slider back on {formatMargin(NATIONAL_GENERIC.marginD)},
+            clears the state adjustments, and returns turnout to 100% of the 2022 House vote. Nothing is stored.
           </p>
           <p>
             The turnout-weighted estimate is not the {formatMargin(NATIONAL_GENERIC.marginD)} aggregator average.
@@ -463,10 +482,11 @@ export function Briefing() {
             share and a Republican share. The other share stays at {NATIONAL_GENERIC.other.toFixed(1)} points,
             the national generic’s other share. Democratic percent is (100 − other + margin) / 2.
             Republican percent is (100 − other − margin) / 2. If a margin would push either share below zero,
-            it is clamped and the page says so. Those percents are applied to that state’s 2022 U.S. House vote,
-            the certified total of votes cast for House candidates, and rounded to whole votes.
-            National Democratic and Republican percents are those vote totals divided by the 2022 House vote
-            in the 50 states. The national margin is the Democratic percent minus the Republican percent.
+            it is clamped and the page says so. Those percents are applied to that state’s expected ballots
+            and rounded to whole votes. At 100% turnout, expected ballots are the certified 2022 U.S. House vote.
+            The turnout slider scales that baseline. National Democratic and Republican
+            percents are those vote totals divided by the expected ballots in the 50 states. The national margin
+            is the Democratic percent minus the Republican percent.
             It is that sum of ballots, not an unweighted average of the 50 state margins.
           </p>
           <p>
@@ -476,6 +496,14 @@ export function Briefing() {
             toward the Republicans moves the national margin by about three times Texas’s share of those ballots,
             toward the Republicans, not by three points. The 2022 totals are the votes that were cast. They are
             not a model of 2026 turnout.
+          </p>
+          <p>
+            The turnout slider with the table of all 50 states scales every state’s 2022 House vote
+            from 70% to 130%. Expected ballots are that certified total times the slider percent, rounded
+            to a whole number. Democratic and Republican votes are the generic shares of those expected ballots.
+            Scaling every state by the same percent changes the vote totals and leaves the national margin unchanged,
+            because each state’s weight in the sum stays the same. Refreshing the page returns the slider to 100%.
+            Nothing is stored.
           </p>
           <p>
             Each Senate chance is half Polymarket and half the polls, when the same two
@@ -606,7 +634,10 @@ function countdown(days: number): string {
 function StateEstimator({
   ballots,
   anyCustom,
+  turnoutPercent,
+  weighted,
   onCustomDelta,
+  onTurnout,
   onReset,
   onSelect,
   selected,
@@ -617,18 +648,28 @@ function StateEstimator({
     margin: number;
     clamped: boolean;
     customDelta: number;
+    baseline: number;
+    baselineUrl: string;
+    turnout: number;
+    demVotes: number;
+    repVotes: number;
   }[];
   anyCustom: boolean;
+  turnoutPercent: number;
+  weighted: { demVotes: number; repVotes: number; turnout: number; margin: number };
   onCustomDelta: (abbr: string, value: number) => void;
+  onTurnout: (percent: number) => void;
   onReset: () => void;
   onSelect: (abbr: string) => void;
   selected: string;
 }) {
+  const rows = [...ballots].sort((a, b) => a.name.localeCompare(b.name, "en"));
+
   return (
     <section className="flex min-w-0 flex-col gap-3" aria-labelledby="estimator-heading">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <h2 id="estimator-heading" className="font-heading text-3xl">
-          Adjust one state
+          All 50 states
         </h2>
         {anyCustom ? (
           <Button variant="outline" className="h-11" onClick={onReset}>
@@ -636,68 +677,165 @@ function StateEstimator({
           </Button>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Every state adjustment starts at zero. Refresh clears these and the national slider.
+            Every state adjustment starts at zero. Refresh clears these, the national slider, and the turnout slider.
           </p>
         )}
       </div>
       <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-        The national slider moves every state by the same amount. These nudges come after that, one state at a time.
-        The map color and the turnout-weighted national margin follow the new estimate. A step is half a point.
-        More Republican is the R button. More Democratic is the D button.
+        The national slider moves every state by the same amount. The adjustment in each row is the same
+        per-state delta as the dossier, applied after that. Changing it updates the map, that state’s Senate
+        margin, and the national total. A step is half a point. More Republican is the R button. More Democratic
+        is the D button. States are listed A to Z.
       </p>
-      <ul className="min-w-0 overflow-hidden rounded-xl border bg-card">
-        {ballots.map((ballot) => (
-          <li
-            key={ballot.abbr}
-            data-testid={`estimator-${ballot.abbr}`}
-            className={`flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-3 py-2 last:border-0 ${selected === ballot.abbr ? "bg-muted/70" : ""}`}
-          >
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => onSelect(ballot.abbr)}
-            >
-              <span className="font-medium">{ballot.name}</span>
-              <span className="ml-2 tabular-nums" data-testid={`estimator-margin-${ballot.abbr}`}>
-                {formatMargin(ballot.margin)}
-                {ballot.clamped ? " clamped" : ""}
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-start">
+        <div className="w-full min-w-0 rounded-xl border bg-card p-4 xl:sticky xl:top-4 xl:w-72 xl:shrink-0">
+          <label className="grid gap-2 text-sm">
+            <span className="font-medium">
+              Turnout versus the 2022 House vote
+              <span className="font-normal text-muted-foreground" data-testid="turnout-percent">
+                {" "}
+                · {turnoutPercent}%
               </span>
-              <span
-                className="mt-0.5 block text-xs text-muted-foreground tabular-nums"
-                data-testid={`estimator-delta-${ballot.abbr}`}
-              >
-                Adjustment {signedCompact(ballot.customDelta)}
-              </span>
-            </button>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-11"
-                data-testid={`nudge-${ballot.abbr}-rep`}
-                aria-label={`Move ${ballot.name} 0.5 points toward Republicans`}
-                onClick={() =>
-                  onCustomDelta(ballot.abbr, Math.max(-60, Number((ballot.customDelta - 0.5).toFixed(1))))
-                }
-              >
-                R
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-11"
-                data-testid={`nudge-${ballot.abbr}-dem`}
-                aria-label={`Move ${ballot.name} 0.5 points toward Democrats`}
-                onClick={() =>
-                  onCustomDelta(ballot.abbr, Math.min(60, Number((ballot.customDelta + 0.5).toFixed(1))))
-                }
-              >
-                D
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
+            </span>
+            <input
+              type="range"
+              min={70}
+              max={130}
+              step={1}
+              value={turnoutPercent}
+              data-testid="turnout-slider"
+              aria-label="Turnout as a percent of the 2022 House vote"
+              aria-valuemin={70}
+              aria-valuemax={130}
+              aria-valuenow={turnoutPercent}
+              aria-valuetext={`${turnoutPercent}% of the 2022 House vote`}
+              onChange={(event) => onTurnout(Number(event.target.value))}
+              className="h-11 w-full max-w-full cursor-pointer accent-foreground"
+            />
+          </label>
+          <p className="mt-3 text-sm leading-6" data-testid="turnout-summary">
+            National turnout{" "}
+            <span className="font-medium tabular-nums" data-testid="turnout-national-ballots">
+              {formatVotes(weighted.turnout)}
+            </span>{" "}
+            ballots. Democrats{" "}
+            <span className="font-medium tabular-nums" data-testid="turnout-national-dem">
+              {formatVotes(weighted.demVotes)}
+            </span>{" "}
+            votes, Republicans{" "}
+            <span className="font-medium tabular-nums" data-testid="turnout-national-rep">
+              {formatVotes(weighted.repVotes)}
+            </span>{" "}
+            votes. National margin{" "}
+            <span className="font-medium tabular-nums" data-testid="turnout-national-margin">
+              {formatMargin(weighted.margin, 2)}
+            </span>
+            .
+          </p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Scaling every state by the same percent changes the vote totals and leaves the national margin unchanged.
+          </p>
+        </div>
+        <div className="max-h-[40rem] min-w-0 w-full flex-1 overflow-auto rounded-xl border bg-card">
+          <table className="w-full border-separate border-spacing-0 text-left text-sm" data-testid="state-table">
+            <caption className="sr-only">
+              All 50 states in alphabetical order, with generic-ballot margin, per-state adjustment, 2022 House baseline, expected turnout, and Democratic and Republican votes
+            </caption>
+            <thead className="sticky top-0 z-10 bg-card text-xs tracking-wide text-muted-foreground uppercase">
+              <tr>
+                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">State</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Generic margin</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Adjustment</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">2022 baseline votes</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Expected turnout</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Democratic votes</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Republican votes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((ballot) => (
+                <tr
+                  key={ballot.abbr}
+                  data-testid={`estimator-${ballot.abbr}`}
+                  className={selected === ballot.abbr ? "bg-muted/70" : undefined}
+                >
+                  <th scope="row" className="border-b px-2 py-2 font-medium whitespace-nowrap">
+                    <button
+                      type="button"
+                      className="text-left"
+                      onClick={() => onSelect(ballot.abbr)}
+                      aria-current={selected === ballot.abbr ? "true" : undefined}
+                    >
+                      {ballot.name}
+                    </button>
+                  </th>
+                  <td className="border-b px-2 py-2 whitespace-nowrap tabular-nums" data-testid={`estimator-margin-${ballot.abbr}`}>
+                    {formatMargin(ballot.margin)}
+                    {ballot.clamped ? " clamped" : ""}
+                  </td>
+                  <td className="border-b px-2 py-2 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-11"
+                        data-testid={`nudge-${ballot.abbr}-rep`}
+                        aria-label={`Move ${ballot.name} 0.5 points toward Republicans`}
+                        onClick={() =>
+                          onCustomDelta(ballot.abbr, Math.max(-60, Number((ballot.customDelta - 0.5).toFixed(1))))
+                        }
+                      >
+                        R
+                      </Button>
+                      <span
+                        className="w-12 text-center text-xs text-muted-foreground tabular-nums"
+                        data-testid={`estimator-delta-${ballot.abbr}`}
+                      >
+                        {signedCompact(ballot.customDelta)}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-11"
+                        data-testid={`nudge-${ballot.abbr}-dem`}
+                        aria-label={`Move ${ballot.name} 0.5 points toward Democrats`}
+                        onClick={() =>
+                          onCustomDelta(ballot.abbr, Math.min(60, Number((ballot.customDelta + 0.5).toFixed(1))))
+                        }
+                      >
+                        D
+                      </Button>
+                    </div>
+                  </td>
+                  <td className="border-b px-2 py-2 text-right whitespace-nowrap tabular-nums">
+                    <a className="underline underline-offset-4" href={ballot.baselineUrl}>
+                      {formatVotes(ballot.baseline)}
+                    </a>
+                  </td>
+                  <td
+                    className="border-b px-2 py-2 text-right whitespace-nowrap tabular-nums"
+                    data-testid={`expected-turnout-${ballot.abbr}`}
+                  >
+                    {formatVotes(ballot.turnout)}
+                  </td>
+                  <td
+                    className="border-b px-2 py-2 text-right whitespace-nowrap tabular-nums"
+                    data-testid={`dem-votes-${ballot.abbr}`}
+                  >
+                    {formatVotes(ballot.demVotes)}
+                  </td>
+                  <td
+                    className="border-b px-2 py-2 text-right whitespace-nowrap tabular-nums"
+                    data-testid={`rep-votes-${ballot.abbr}`}
+                  >
+                    {formatVotes(ballot.repVotes)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }
@@ -709,6 +847,7 @@ function StateDossier({
   customDelta,
   onCustomDelta,
   ballot,
+  turnoutPercent,
 }: {
   abbr: string;
   state: StateRecord | undefined;
@@ -722,7 +861,9 @@ function StateDossier({
     demVotes: number;
     repVotes: number;
     turnout: number;
+    baseline: number;
   };
+  turnoutPercent: number;
 }) {
   if (abbr === "DC" || !state) {
     return (
@@ -816,7 +957,10 @@ function StateDossier({
         ) : null}
         {ballot ? (
           <p data-testid="state-votes">
-            At the 2022 House vote of {formatVotes(ballot.turnout)}: Democrats{" "}
+            {ballot.turnout === ballot.baseline
+              ? `At the 2022 House vote of ${formatVotes(ballot.turnout)}: `
+              : `Expected ballots ${formatVotes(ballot.turnout)}, ${turnoutPercent}% of the 2022 House vote of ${formatVotes(ballot.baseline)}: `}
+            Democrats{" "}
             <span className="font-medium tabular-nums" data-testid="state-dem-votes">
               {formatVotes(ballot.demVotes)}
             </span>

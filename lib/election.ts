@@ -224,6 +224,11 @@ export function votesForShare(turnout: number, pct: number): number {
   return Math.round((turnout * pct) / 100);
 }
 
+/** Expected ballots at a whole-number percent of a 2022 House baseline. 100 leaves the certified total unchanged. */
+export function scaledTurnout(baseline: number, percent: number): number {
+  return Math.round((baseline * percent) / 100);
+}
+
 export type StateBallot = {
   margin: number;
   raw: number;
