@@ -35,7 +35,8 @@ import {
 import { HOUSE_2022, HOUSE_2022_FEC } from "@/lib/house-2022";
 import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
 import { GOVERNOR_POLYMARKET_AS_OF, GOVERNORS, governorProjection } from "@/lib/governor-live";
-import { GOVERNOR_MARGINS, MARGIN_AS_OF, SENATE_MARGINS } from "@/lib/margin-live";
+import { GOVERNOR_MARGINS, MARGIN_AS_OF, SENATE_MARGINS, type MarginEvent } from "@/lib/margin-live";
+import { sortMarginBrackets, type MarginSort } from "@/lib/margin-sort";
 import {
   HOUSE_2024_DISTRICT,
   HOUSE_MARKETS,
@@ -66,6 +67,7 @@ import {
 import {
   HOUSE_CONTROL,
   POLYMARKET_AS_OF,
+  SENATE,
   SENATE_CONTROL,
   averageShares,
   blendsPolls,
@@ -75,6 +77,7 @@ import {
   partyName,
   pollMarginPoints,
   quotedChances,
+  type MarketCandidate,
   type SenateRace,
   type Share,
 } from "@/lib/senate-live";
@@ -673,10 +676,16 @@ export function Briefing() {
           </p>
           <p>
             The margin-of-victory list on a Senate or governor race is Polymarket’s own
-            brackets, from the {MARGIN_AS_OF} snapshot. The generic-ballot slider does not
-            move those prices. A race with no such market says so. House districts do not
-            get that list. The detector at the bottom of this tab uses a separate snapshot
-            of the same hour, {TOSSUP_AS_OF}, and your picks there are cleared only by a refresh.
+            brackets, from the {MARGIN_AS_OF} snapshot. Each market opens from the Democratic
+            outcome to the Republican outcome: the Democrat’s wider margin first, then that
+            candidate’s narrower margin, then the Republican’s narrower margin, then the wider
+            Republican win. Odds reorders that same list by price, highest chance first, and
+            does not change a price. Alaska and Maine Senate each list a first-round market
+            and a final-round market, and each market has its own sort. Refresh puts every
+            market back on Democrat to Republican. The generic-ballot slider does not move
+            those prices. A race with no such market says so. House districts do not get that
+            list. The detector at the bottom of this tab uses a separate snapshot of the same
+            hour, {TOSSUP_AS_OF}, and your picks there are cleared only by a refresh.
           </p>
           <p>
             Governor races are on their own tab and use this same split, for the states that
@@ -853,6 +862,80 @@ function StateGenericControl({
   );
 }
 
+type StateSortKey =
+  | "name"
+  | "margin"
+  | "house"
+  | "custom"
+  | "baseline"
+  | "turnout"
+  | "dem"
+  | "rep"
+  | "percent";
+
+type StateSort = { key: StateSortKey; dir: "asc" | "desc" };
+
+const STATE_COLUMNS: { key: StateSortKey; label: string; align: "left" | "right" }[] = [
+  { key: "name", label: "State", align: "left" },
+  { key: "margin", label: "Generic margin", align: "left" },
+  { key: "house", label: "2024 generic", align: "left" },
+  { key: "custom", label: "Custom delta", align: "left" },
+  { key: "baseline", label: "2022 baseline votes", align: "right" },
+  { key: "turnout", label: "Expected turnout", align: "right" },
+  { key: "dem", label: "Democratic votes", align: "right" },
+  { key: "rep", label: "Republican votes", align: "right" },
+  { key: "percent", label: "Percent of 2024 House vote", align: "right" },
+];
+
+function stateSortStarts(key: StateSortKey): "asc" | "desc" {
+  if (key === "name" || key === "margin" || key === "house" || key === "custom") return "asc";
+  return "desc";
+}
+
+function stateSortMark(key: StateSortKey, dir: "asc" | "desc"): string {
+  if (key === "name") return dir === "asc" ? "A–Z" : "Z–A";
+  if (key === "margin" || key === "house" || key === "custom") {
+    return dir === "asc" ? "R to D" : "D to R";
+  }
+  return dir === "desc" ? "high to low" : "low to high";
+}
+
+function stateSortValue(
+  ballot: {
+    name: string;
+    margin: number;
+    houseMarginD: number;
+    customDelta: number;
+    baseline: number;
+    turnout: number;
+    demVotes: number;
+    repVotes: number;
+    percentOf2024: number;
+  },
+  key: StateSortKey,
+): number | string {
+  switch (key) {
+    case "name":
+      return ballot.name;
+    case "margin":
+      return ballot.margin;
+    case "house":
+      return ballot.houseMarginD;
+    case "custom":
+      return ballot.customDelta;
+    case "baseline":
+      return ballot.baseline;
+    case "turnout":
+      return ballot.turnout;
+    case "dem":
+      return ballot.demVotes;
+    case "rep":
+      return ballot.repVotes;
+    case "percent":
+      return ballot.percentOf2024;
+  }
+}
+
 function StateEstimator({
   ballots,
   anyCustom,
@@ -894,7 +977,26 @@ function StateEstimator({
   onSelect: (abbr: string) => void;
   selected: string;
 }) {
-  const rows = [...ballots].sort((a, b) => a.name.localeCompare(b.name, "en"));
+  const [sort, setSort] = useState<StateSort | null>(null);
+  const rows = [...ballots].sort((a, b) => {
+    const key = sort?.key ?? "name";
+    const dir = sort?.dir ?? "asc";
+    const left = stateSortValue(a, key);
+    const right = stateSortValue(b, key);
+    const compared =
+      typeof left === "string" || typeof right === "string"
+        ? String(left).localeCompare(String(right), "en")
+        : left - right;
+    if (compared === 0) return a.name.localeCompare(b.name, "en");
+    return dir === "asc" ? compared : -compared;
+  });
+
+  function toggleSort(key: StateSortKey) {
+    setSort((current) => {
+      if (!current || current.key !== key) return { key, dir: stateSortStarts(key) };
+      return { key, dir: current.dir === "asc" ? "desc" : "asc" };
+    });
+  }
 
   return (
     <section className="flex min-w-0 flex-col gap-3" aria-labelledby="estimator-heading">
@@ -918,7 +1020,10 @@ function StateEstimator({
         The original is the even-swing figure plus the national slider. Reset on that row restores it
         and leaves the national slider, turnout, and every other state alone. The same slider is in the
         state dossier. The 2024 generic column is that state’s 2024 U.S. House popular-vote margin and
-        does not move. States are listed A to Z.
+        does not move. The table opens A to Z by state. Click a column header to sort, and click
+        it again to reverse that column. Generic margin, the 2024 generic, and the custom delta
+        start with the more Republican figure. Vote counts and the percent of the 2024 House vote
+        start with the largest figure. Sorting does not move a slider, the national margin, or turnout.
       </p>
       <div className="flex min-w-0 flex-col gap-4">
         <div className="w-full min-w-0 rounded-xl border bg-card p-4">
@@ -970,21 +1075,56 @@ function StateEstimator({
           </p>
         </div>
         <div className="max-h-[40rem] min-w-0 w-full flex-1 overflow-auto rounded-xl border bg-card">
-          <table className="w-full border-separate border-spacing-0 text-left text-sm" data-testid="state-table">
+          <table
+            className="w-full border-separate border-spacing-0 text-left text-sm"
+            data-testid="state-table"
+            data-sort-key={sort?.key ?? ""}
+            data-sort-dir={sort?.dir ?? ""}
+          >
             <caption className="sr-only">
-              All 50 states in alphabetical order, with generic-ballot margin, the 2024 House popular-vote margin, a per-state slider, the 2022 House baseline, expected turnout, Democratic and Republican votes, and each state’s expected ballots as a percent of its 2024 House vote
+              All 50 states, with generic-ballot margin, the 2024 House popular-vote margin, a per-state slider, the 2022 House baseline, expected turnout, Democratic and Republican votes, and each state’s expected ballots as a percent of its 2024 House vote. The table opens A to Z. Each column header sorts the rows.
             </caption>
             <thead className="sticky top-0 z-10 bg-card text-xs tracking-wide text-muted-foreground uppercase">
               <tr>
-                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">State</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Generic margin</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 font-medium whitespace-nowrap">2024 generic</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Custom delta</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">2022 baseline votes</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Expected turnout</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Democratic votes</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Republican votes</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Percent of 2024 House vote</th>
+                {STATE_COLUMNS.map((column) => {
+                  const active = sort?.key === column.key;
+                  const mark = active ? stateSortMark(column.key, sort.dir) : "";
+                  return (
+                    <th
+                      key={column.key}
+                      scope="col"
+                      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+                      className={cn(
+                        "border-b bg-card px-2 py-3 align-bottom font-medium whitespace-normal",
+                        column.align === "right" && "text-right",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex max-w-full cursor-pointer flex-wrap items-baseline gap-x-1 text-left font-medium",
+                          column.align === "right" && "w-full justify-end",
+                        )}
+                        data-testid={`sort-${column.key}`}
+                        data-active={active ? "true" : "false"}
+                        data-direction={active ? sort.dir : ""}
+                        aria-label={
+                          active
+                            ? `${column.label}, sorted ${mark}. Activate to reverse.`
+                            : `Sort by ${column.label}`
+                        }
+                        onClick={() => toggleSort(column.key)}
+                      >
+                        <span>{column.label}</span>
+                        {active ? (
+                          <span className="tracking-normal normal-case" data-testid={`sort-mark-${column.key}`}>
+                            {mark}
+                          </span>
+                        ) : null}
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -1745,8 +1885,96 @@ function formatOdds(value: number): string {
   return `${value.toFixed(1)} in 100`;
 }
 
+function MarginMarket({
+  event,
+  candidates,
+}: {
+  event: MarginEvent;
+  candidates: MarketCandidate[];
+}) {
+  const [sort, setSort] = useState<MarginSort>("dem-rep");
+  const ranked = sortMarginBrackets(event.brackets, candidates, sort);
+
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-2"
+      data-testid="margin-event"
+      data-slug={event.slug}
+      data-sort={sort}
+    >
+      <p className="text-sm font-medium">{event.title}</p>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={`Sort ${event.title}`} data-testid="margin-sort">
+        <button
+          type="button"
+          aria-pressed={sort === "dem-rep"}
+          data-testid="margin-sort-dem-rep"
+          className={cn(
+            "h-11 rounded-lg border px-3 text-left text-sm font-medium",
+            sort === "dem-rep"
+              ? "border-foreground bg-foreground text-background"
+              : "border-border bg-background hover:bg-muted",
+          )}
+          onClick={() => setSort("dem-rep")}
+        >
+          Democrat to Republican
+        </button>
+        <button
+          type="button"
+          aria-pressed={sort === "odds"}
+          data-testid="margin-sort-odds"
+          className={cn(
+            "h-11 rounded-lg border px-3 text-sm font-medium",
+            sort === "odds"
+              ? "border-foreground bg-foreground text-background"
+              : "border-border bg-background hover:bg-muted",
+          )}
+          onClick={() => setSort("odds")}
+        >
+          Odds
+        </button>
+      </div>
+      <ol className="flex min-w-0 flex-col gap-2">
+        {ranked.map((bracket, rank) => (
+          <li
+            key={bracket.label}
+            className="min-w-0"
+            data-testid="margin-outcome"
+            data-label={bracket.label}
+            data-price={bracket.price}
+          >
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="min-w-0">
+                <span className="mr-2 tabular-nums text-muted-foreground">{rank + 1}.</span>
+                {bracket.label}
+              </span>
+              <span className="shrink-0 tabular-nums">{formatOdds(bracket.price)}</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+              <div
+                className="h-full rounded-full bg-foreground/70"
+                style={{ width: `${Math.min(100, Math.max(0, bracket.price))}%` }}
+              />
+            </div>
+          </li>
+        ))}
+      </ol>
+      <a
+        href={event.url}
+        target="_blank"
+        rel="noreferrer"
+        data-testid="margin-link"
+        className="text-sm underline underline-offset-4"
+      >
+        Polymarket margin of victory
+      </a>
+    </div>
+  );
+}
+
 function MarginSection({ abbr, office }: { abbr: string; office: "senate" | "governor" }) {
   const events = (office === "senate" ? SENATE_MARGINS : GOVERNOR_MARGINS)[abbr];
+  const race = office === "senate" ? SENATE[abbr] : GOVERNORS[abbr];
+  const candidates = race?.candidates ?? [];
 
   return (
     <div
@@ -1763,52 +1991,11 @@ function MarginSection({ abbr, office }: { abbr: string; office: "senate" | "gov
         </p>
       ) : (
         <>
-          {events.map((event) => {
-            const ranked = event.brackets
-              .map((bracket, index) => ({ bracket, index }))
-              .sort((a, b) => b.bracket.price - a.bracket.price || a.index - b.index);
-            return (
-              <div key={event.slug} className="flex min-w-0 flex-col gap-2" data-testid="margin-event" data-slug={event.slug}>
-                <p className="text-sm font-medium">{event.title}</p>
-                <ol className="flex min-w-0 flex-col gap-2">
-                  {ranked.map(({ bracket }, rank) => (
-                    <li
-                      key={bracket.label}
-                      className="min-w-0"
-                      data-testid="margin-outcome"
-                      data-label={bracket.label}
-                      data-price={bracket.price}
-                    >
-                      <div className="flex items-baseline justify-between gap-3 text-sm">
-                        <span className="min-w-0">
-                          <span className="mr-2 tabular-nums text-muted-foreground">{rank + 1}.</span>
-                          {bracket.label}
-                        </span>
-                        <span className="shrink-0 tabular-nums">{formatOdds(bracket.price)}</span>
-                      </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-                        <div
-                          className="h-full rounded-full bg-foreground/70"
-                          style={{ width: `${Math.min(100, Math.max(0, bracket.price))}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                <a
-                  href={event.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-testid="margin-link"
-                  className="text-sm underline underline-offset-4"
-                >
-                  Polymarket margin of victory
-                </a>
-              </div>
-            );
-          })}
+          {events.map((event) => (
+            <MarginMarket key={event.slug} event={event} candidates={candidates} />
+          ))}
           <p className="text-xs leading-5 text-muted-foreground" data-testid="margin-as-of">
-            Polymarket outcome prices, {MARGIN_AS_OF} snapshot. They do not move with the generic ballot.
+            Polymarket outcome prices, {MARGIN_AS_OF} snapshot. Sorting does not change them, and they do not move with the generic ballot.
           </p>
         </>
       )}
