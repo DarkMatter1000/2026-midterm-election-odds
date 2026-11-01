@@ -148,3 +148,36 @@
   stroke: #1a1714;
   stroke-width: 2.5px;
 }
+
+.votehub-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 0.05rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.votehub-badge-d {
+  color: #1e4f8f;
+  background: #e7eef6;
+}
+
+.votehub-badge-r {
+  color: #8f2d2d;
+  background: #f6e7e4;
+}
+
+.votehub-badge-i {
+  color: #2f6b4f;
+  background: #e5f0ea;
+}
+
+.votehub-badge-toss {
+  color: #6b5314;
+  background: #f6efd4;
+}

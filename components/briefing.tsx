@@ -53,6 +53,16 @@ import {
 import { HOUSE_2024 } from "@/lib/house-2024";
 import { DISTRICT_PATHS } from "@/lib/district-paths";
 import {
+  VOTEHUB_AS_OF,
+  VOTEHUB_GOVERNOR,
+  VOTEHUB_GOVERNOR_INDEX,
+  VOTEHUB_HOUSE,
+  VOTEHUB_HOUSE_INDEX,
+  VOTEHUB_SENATE,
+  VOTEHUB_SENATE_INDEX,
+  type VoteHubRating,
+} from "@/lib/votehub";
+import {
   HOUSE_CONTROL,
   POLYMARKET_AS_OF,
   SENATE_CONTROL,
@@ -68,15 +78,19 @@ import {
   type Share,
 } from "@/lib/senate-live";
 
-function signedPoints(value: number): string {
-  if (value === 0) return "0.0";
-  const abs = Math.abs(value).toFixed(1);
-  return value > 0 ? `+${abs} Democratic` : `−${abs} Republican`;
+/** Per-state custom delta, in points. Negative is more Republican. */
+const STATE_CUSTOM_MIN = -20;
+const STATE_CUSTOM_MAX = 20;
+
+function customDeltaLabel(value: number): string {
+  if (value === 0) return "even";
+  return formatMargin(value);
 }
 
-function signedCompact(value: number): string {
-  if (value === 0) return "0.0";
-  return `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
+function clampCustomDelta(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const next = Number(value.toFixed(1));
+  return Math.min(STATE_CUSTOM_MAX, Math.max(STATE_CUSTOM_MIN, next));
 }
 
 function deltaLabel(delta: number): string {
@@ -106,13 +120,15 @@ export function Briefing() {
   }
 
   function setCustomDelta(abbr: string, value: number) {
-    const next = Number(value.toFixed(1));
+    const next = clampCustomDelta(value);
     setCustom((prev) => {
       if (next === 0) {
+        if (prev[abbr] === undefined) return prev;
         const rest = { ...prev };
         delete rest[abbr];
         return rest;
       }
+      if (prev[abbr] === next) return prev;
       return { ...prev, [abbr]: next };
     });
   }
@@ -157,6 +173,7 @@ export function Briefing() {
       abbr: state.abbr,
       name: state.name,
       customDelta: customDelta(state.abbr),
+      houseMarginD: HOUSE_2024[state.abbr].marginD,
       baseline,
       baselineUrl: HOUSE_2022[state.abbr].url,
       votes2024,
@@ -305,10 +322,10 @@ export function Briefing() {
               House district generic-ballot estimate, on every Senate polling margin, and on every
               governor polling margin. Where a House race has a polling average, that projected
               margin moves by the same point, and only the polling half of the chance moves. A
-              Polymarket-only price stays the snapshot. A per-state adjustment is applied after
+              Polymarket-only price stays the snapshot. A per-state slider, at most 20 points either way, is applied after
               that, and only to that state. Turnout does not move those chances or margins. The
               range runs from even to D+16.0. Refresh the page
-              to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
+              to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state slider, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
             </p>
           </article>
           <article className="bg-card p-5">
@@ -555,11 +572,13 @@ export function Briefing() {
           </p>
           <p>
             The slider sets a scenario national margin. Delta is that slider minus {NATIONAL_GENERIC.marginD.toFixed(1)}.
-            The state estimate shown on the map is the even-swing figure plus that delta, plus any
-            adjustment made for that state alone. Moving the slider from {formatMargin(NATIONAL_GENERIC.marginD)} to D+9.6
+            The state estimate shown on the map is the even-swing figure plus that delta, plus a custom
+            delta on that state alone. Each state’s slider runs from 20 points more Republican to 20 points
+            more Democratic. Reset on that row clears only that custom delta. Moving the national slider
+            from {formatMargin(NATIONAL_GENERIC.marginD)} to D+9.6
             is a delta of +1.0, so every state moves 1.0 point toward the Democrats before those
-            state adjustments. Refreshing the page puts the slider back on {formatMargin(NATIONAL_GENERIC.marginD)},
-            clears the state adjustments, returns turnout to 100% of the 2022 House vote, and clears every state’s 2024 turnout adjustment. Nothing is stored.
+            custom deltas. Refreshing the page puts the national slider back on {formatMargin(NATIONAL_GENERIC.marginD)},
+            clears every state slider, returns turnout to 100% of the 2022 House vote, and clears every state’s 2024 turnout adjustment. Nothing is stored.
           </p>
           <p>
             The turnout-weighted estimate is not the {formatMargin(NATIONAL_GENERIC.marginD)} aggregator average.
@@ -621,7 +640,8 @@ export function Briefing() {
           <p>
             The 2024 House line next to the presidential margin is the statewide popular vote
             for Democratic and Republican House candidates, from that state’s Wikipedia page.
-            It is a comparison. It is not an input to the generic-ballot estimate. Alaska uses
+            It is a comparison. It is not an input to the generic-ballot estimate. The All 50 states
+            table prints that same margin in the 2024 generic column. Alaska uses
             the first-round vote, not the ranked-choice final round.
           </p>
           <p>
@@ -695,6 +715,13 @@ export function Briefing() {
               </a>
               , for the ten states that have a published state exit poll
             </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://votehub.com/2026-forecast/">
+                VoteHub, 2026 forecast
+              </a>
+              , ratings fetched {VOTEHUB_AS_OF}. The label on a clicked race is the one VoteHub
+              prints in its Ratings view. The link opens that race on VoteHub.
+            </li>
           </ul>
         </section>
           </TabsContent>
@@ -736,6 +763,72 @@ function countdown(days: number): string {
   return `Election Day was ${Math.abs(days)} days ago. This page is still the October 31 snapshot, not a results page.`;
 }
 
+function StateGenericControl({
+  stateName,
+  customDelta,
+  generic,
+  clamped = false,
+  onCustomDelta,
+  onReset,
+  sliderTestId,
+  deltaTestId,
+  resetTestId,
+  hint,
+  className,
+}: {
+  stateName: string;
+  customDelta: number;
+  generic: number;
+  clamped?: boolean;
+  onCustomDelta: (value: number) => void;
+  onReset: () => void;
+  sliderTestId: string;
+  deltaTestId: string;
+  resetTestId: string;
+  hint?: string;
+  className?: string;
+}) {
+  const deltaText = customDeltaLabel(customDelta);
+  const genericText = `${formatMargin(generic)}${clamped ? " clamped" : ""}`;
+  const summary = `${deltaText} · generic ${genericText}`;
+  return (
+    <div className={cn("grid min-w-0 gap-1", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs leading-4 font-medium whitespace-nowrap tabular-nums">
+          <span data-testid={deltaTestId}>{deltaText}</span>
+          <span className="font-normal text-muted-foreground"> · generic {genericText}</span>
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 shrink-0 px-3"
+          data-testid={resetTestId}
+          aria-label={`Reset the ${stateName} generic ballot to the original estimate`}
+          onClick={onReset}
+        >
+          Reset
+        </Button>
+      </div>
+      <input
+        type="range"
+        min={STATE_CUSTOM_MIN}
+        max={STATE_CUSTOM_MAX}
+        step={0.1}
+        value={customDelta}
+        data-testid={sliderTestId}
+        aria-label={`Custom generic ballot for ${stateName}, from 20 points more Republican to 20 points more Democratic`}
+        aria-valuemin={STATE_CUSTOM_MIN}
+        aria-valuemax={STATE_CUSTOM_MAX}
+        aria-valuenow={customDelta}
+        aria-valuetext={summary}
+        onChange={(event) => onCustomDelta(Number(event.target.value))}
+        className="h-11 w-full min-w-0 max-w-full cursor-pointer accent-foreground"
+      />
+      {hint ? <span className="text-xs leading-5 font-normal text-muted-foreground">{hint}</span> : null}
+    </div>
+  );
+}
+
 function StateEstimator({
   ballots,
   anyCustom,
@@ -755,6 +848,7 @@ function StateEstimator({
     margin: number;
     clamped: boolean;
     customDelta: number;
+    houseMarginD: number;
     baseline: number;
     baselineUrl: string;
     votes2024: number;
@@ -790,15 +884,17 @@ function StateEstimator({
           </Button>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Every state adjustment starts at zero. Refresh clears these, the national slider, the turnout slider, and every state’s 2024 turnout adjustment.
+            Every state slider starts on the original generic. Refresh clears these sliders, the national slider, the turnout slider, and every state’s 2024 turnout adjustment.
           </p>
         )}
       </div>
       <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-        The national slider moves every state by the same amount. The adjustment in each row is the same
-        per-state delta as the dossier, applied after that. Changing it updates the map, that state’s Senate
-        margin, and the national total. A step is half a point. More Republican is the R button. More Democratic
-        is the D button. States are listed A to Z.
+        The national slider moves every state by the same amount. The slider in each row moves only that
+        state, from 20 points more Republican to 20 points more Democratic than the original estimate.
+        The original is the even-swing figure plus the national slider. Reset on that row restores it
+        and leaves the national slider, turnout, and every other state alone. The same slider is in the
+        state dossier. The 2024 generic column is that state’s 2024 U.S. House popular-vote margin and
+        does not move. States are listed A to Z.
       </p>
       <div className="flex min-w-0 flex-col gap-4">
         <div className="w-full min-w-0 rounded-xl border bg-card p-4">
@@ -852,13 +948,14 @@ function StateEstimator({
         <div className="max-h-[40rem] min-w-0 w-full flex-1 overflow-auto rounded-xl border bg-card">
           <table className="w-full border-separate border-spacing-0 text-left text-sm" data-testid="state-table">
             <caption className="sr-only">
-              All 50 states in alphabetical order, with generic-ballot margin, per-state adjustment, 2022 House baseline, expected turnout, Democratic and Republican votes, and each state’s expected ballots as a percent of its 2024 House vote
+              All 50 states in alphabetical order, with generic-ballot margin, the 2024 House popular-vote margin, a per-state slider, the 2022 House baseline, expected turnout, Democratic and Republican votes, and each state’s expected ballots as a percent of its 2024 House vote
             </caption>
             <thead className="sticky top-0 z-10 bg-card text-xs tracking-wide text-muted-foreground uppercase">
               <tr>
                 <th scope="col" className="border-b bg-card px-2 py-3 font-medium">State</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Generic margin</th>
-                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Adjustment</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 font-medium whitespace-nowrap">2024 generic</th>
+                <th scope="col" className="border-b bg-card px-2 py-3 font-medium">Custom delta</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">2022 baseline votes</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Expected turnout</th>
                 <th scope="col" className="border-b bg-card px-2 py-3 text-right font-medium">Democratic votes</th>
@@ -887,39 +984,20 @@ function StateEstimator({
                     {formatMargin(ballot.margin)}
                     {ballot.clamped ? " clamped" : ""}
                   </td>
-                  <td className="border-b px-2 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 w-11"
-                        data-testid={`nudge-${ballot.abbr}-rep`}
-                        aria-label={`Move ${ballot.name} 0.5 points toward Republicans`}
-                        onClick={() =>
-                          onCustomDelta(ballot.abbr, Math.max(-60, Number((ballot.customDelta - 0.5).toFixed(1))))
-                        }
-                      >
-                        R
-                      </Button>
-                      <span
-                        className="w-12 text-center text-xs text-muted-foreground tabular-nums"
-                        data-testid={`estimator-delta-${ballot.abbr}`}
-                      >
-                        {signedCompact(ballot.customDelta)}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-11 w-11"
-                        data-testid={`nudge-${ballot.abbr}-dem`}
-                        aria-label={`Move ${ballot.name} 0.5 points toward Democrats`}
-                        onClick={() =>
-                          onCustomDelta(ballot.abbr, Math.min(60, Number((ballot.customDelta + 0.5).toFixed(1))))
-                        }
-                      >
-                        D
-                      </Button>
-                    </div>
+                  <td className="border-b px-2 py-2 whitespace-nowrap tabular-nums" data-testid={`generic-2024-${ballot.abbr}`} title="2024 U.S. House popular vote, Democratic percent minus Republican percent">{formatMargin(ballot.houseMarginD)}</td>
+                  <td className="border-b px-2 py-2">
+                    <StateGenericControl
+                      stateName={ballot.name}
+                      customDelta={ballot.customDelta}
+                      generic={ballot.margin}
+                      clamped={ballot.clamped}
+                      onCustomDelta={(value) => onCustomDelta(ballot.abbr, value)}
+                      onReset={() => onCustomDelta(ballot.abbr, 0)}
+                      sliderTestId={`estimator-slider-${ballot.abbr}`}
+                      deltaTestId={`estimator-delta-${ballot.abbr}`}
+                      resetTestId={`reset-${ballot.abbr}`}
+                      className="min-w-80"
+                    />
                   </td>
                   <td className="border-b px-2 py-2 text-right whitespace-nowrap tabular-nums">
                     <a className="underline underline-offset-4" href={ballot.baselineUrl}>
@@ -982,6 +1060,64 @@ function StateEstimator({
         </div>
       </div>
     </section>
+  );
+}
+
+function voteHubTone(label: string): string {
+  if (label === "Tossup") return "votehub-badge-toss";
+  if (label.endsWith(" D")) return "votehub-badge-d";
+  if (label.endsWith(" R")) return "votehub-badge-r";
+  if (label.endsWith(" I")) return "votehub-badge-i";
+  return "votehub-badge-toss";
+}
+
+function VoteHubRow({
+  rating,
+  indexUrl,
+  testId,
+}: {
+  rating: VoteHubRating | undefined;
+  indexUrl: string;
+  testId: string;
+}) {
+  if (!rating) {
+    return (
+      <div className="flex min-w-0 flex-col gap-1 text-sm leading-6" data-testid={testId} data-rating="">
+        <p>VoteHub has not published a rating for this race.</p>
+        <a
+          href={indexUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="w-fit underline underline-offset-4"
+          data-testid={`${testId}-link`}
+        >
+          VoteHub ratings
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm"
+      data-testid={testId}
+      data-rating={rating.label}
+      data-source={rating.source}
+    >
+      <span className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">VoteHub</span>
+      <span className={cn("votehub-badge", voteHubTone(rating.label))} data-testid={`${testId}-label`}>
+        {rating.label}
+      </span>
+      <a
+        href={rating.url}
+        target="_blank"
+        rel="noreferrer"
+        className="underline underline-offset-4"
+        data-testid={`${testId}-link`}
+      >
+        VoteHub rating
+      </a>
+    </div>
   );
 }
 
@@ -1076,32 +1212,18 @@ function StateDossier({
           {ballot?.clamped ? ", clamped" : ""}.
         </p>
         {onCustomDelta ? (
-          <label className="grid gap-2">
-            <span className="font-medium">
-              This state’s adjustment{" "}
-              <span className="font-normal text-muted-foreground" data-testid="state-custom-delta">
-                {signedPoints(customDelta)}
-              </span>
-            </span>
-            <input
-              type="range"
-              min={-60}
-              max={60}
-              step={0.1}
-              value={customDelta}
-              data-testid="state-generic-range"
-              aria-label={`Shift the ${state.name} generic ballot`}
-              aria-valuemin={-60}
-              aria-valuemax={60}
-              aria-valuenow={customDelta}
-              aria-valuetext={signedPoints(customDelta)}
-              onChange={(event) => onCustomDelta(Number(event.target.value))}
-              className="h-11 w-full cursor-pointer accent-foreground"
-            />
-            <span className="text-muted-foreground">
-              More Republican at the left, more Democratic at the right. This sits on top of the national slider.
-            </span>
-          </label>
+          <StateGenericControl
+            stateName={state.name}
+            customDelta={customDelta}
+            generic={generic}
+            clamped={ballot?.clamped}
+            onCustomDelta={onCustomDelta}
+            onReset={() => onCustomDelta(0)}
+            sliderTestId="state-generic-range"
+            deltaTestId="state-custom-delta"
+            resetTestId="state-generic-reset"
+            hint="More Republican at the left, more Democratic at the right, up to 20 points from the original estimate. Reset restores this state and leaves the national slider where it is."
+          />
         ) : null}
         {ballot ? (
           <p data-testid="state-votes">
@@ -1130,6 +1252,13 @@ function StateDossier({
       {state.senate ? <ChanceBlock race={state.senate} state={state} delta={delta} /> : null}
       {state.senate?.caveat ? (
         <p className="text-sm leading-6 text-muted-foreground">{state.senate.caveat}</p>
+      ) : null}
+      {state.senate ? (
+        <VoteHubRow
+          rating={VOTEHUB_SENATE[state.abbr]}
+          indexUrl={VOTEHUB_SENATE_INDEX}
+          testId="senate-votehub"
+        />
       ) : null}
       {state.senate ? (
         <a
@@ -1390,6 +1519,7 @@ function RaceRow({
           className="h-auto px-0 text-left font-heading text-2xl hover:bg-transparent"
           onClick={onSelect}
           aria-current={selected ? "true" : undefined}
+          data-testid={`senate-race-${state.abbr}`}
         >
           {state.name}
         </Button>
@@ -1554,6 +1684,11 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
             {current.race.caveat ? (
               <p className="text-sm leading-6 text-muted-foreground">{current.race.caveat}</p>
             ) : null}
+            <VoteHubRow
+              rating={VOTEHUB_GOVERNOR[current.abbr]}
+              indexUrl={VOTEHUB_GOVERNOR_INDEX}
+              testId="governor-votehub"
+            />
             <a
               href={current.race.polymarketUrl}
               target="_blank"
@@ -1760,6 +1895,13 @@ function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
                     </p>
                   )}
                 </div>
+              </div>
+              <div className="mt-4">
+                <VoteHubRow
+                  rating={VOTEHUB_HOUSE[shape.id]}
+                  indexUrl={VOTEHUB_HOUSE_INDEX}
+                  testId="house-votehub"
+                />
               </div>
               <div className="mt-4 flex flex-col gap-2 text-sm leading-6">
                 <p data-testid="district-house-2024" data-margin={result?.marginD ?? ""}>
