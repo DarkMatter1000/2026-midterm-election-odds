@@ -11,10 +11,16 @@ import {
 } from "react";
 import { GOVERNORS } from "@/lib/governor-live";
 import { HOUSE_MARKETS, type HouseMarket } from "@/lib/house-districts";
-import { GOVERNOR_MARGINS, SENATE_MARGINS, type MarginEvent } from "@/lib/margin-live";
+import {
+  GENERIC_BALLOT_MARGIN,
+  GOVERNOR_MARGINS,
+  SENATE_MARGINS,
+  type MarginEvent,
+} from "@/lib/margin-live";
 import {
   applyControl,
   applyHouseMarkets,
+  applyMarginEvent,
   applyMarginEvents,
   applyRaces,
   applyTossup,
@@ -47,6 +53,7 @@ export type LiveOddsValue = {
   governorMargins: Record<string, MarginEvent[]>;
   senateControl: { dem: number; rep: number; url: string };
   houseControl: { dem: number; rep: number; url: string };
+  genericBallotMargin: MarginEvent;
   tossup: LiveTossup;
 };
 
@@ -68,6 +75,7 @@ function fromPayload(payload: LiveOddsPayload | null, status: LiveOddsStatus): O
     governorMargins: applyMarginEvents(GOVERNOR_MARGINS, events),
     senateControl: applyControl(SENATE_CONTROL, events),
     houseControl: applyControl(HOUSE_CONTROL, events),
+    genericBallotMargin: applyMarginEvent(GENERIC_BALLOT_MARGIN, events),
     tossup: applyTossup(events[TOSSUP_EVENT.slug]),
   };
 }

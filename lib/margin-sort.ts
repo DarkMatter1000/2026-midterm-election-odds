@@ -7,7 +7,9 @@ export type MarginSort = "odds" | "dem-rep";
 const PARTY_WORD: Record<string, Party> = {
   democrat: "D",
   democratic: "D",
+  democrats: "D",
   republican: "R",
+  republicans: "R",
   independent: "I",
 };
 

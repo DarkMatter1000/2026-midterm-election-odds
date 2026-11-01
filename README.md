@@ -10,6 +10,8 @@ It shows:
 - The **2024 House popular vote** in each state, next to the 2024 presidential margin, and the **2024 exit-poll electorate** (age, ethnicity, and gender) where CNN published a state exit poll.
 - A **turnout-weighted generic ballot**. Each state’s estimate, after the national slider and any adjustment on that state alone, is split into Democratic and Republican shares with the national “other” share held at 5.2. Those shares are applied to that state’s 2022 U.S. House vote. The national margin on the card is the sum of those ballots, not the D+8.6 aggregator average. The same per-state adjustment is a slider in a table of all 50 states, 20 points either way from the original estimate, with Reset on that row. The table opens A to Z. Clicking a column header sorts by that column, and a second click reverses it. That table’s 2024 generic column is the 2024 U.S. House popular-vote margin. A turnout slider with that table scales every state’s 2022 House vote from 70% to 130%; scaling every state by the same percent changes the vote totals and leaves the national margin unchanged. Each row can also raise or lower that state by one percentage point of its 2024 U.S. House vote, counting every House candidate rather than the presidential popular vote, and that one-state change moves the national margin because the state’s weight changes. State sliders are not saved. Refreshing the page clears them, the national slider, the turnout slider, and every per-state 2024 turnout adjustment.
 
+The national header also lists Polymarket’s House popular-vote margin of victory, the generic-ballot brackets, under Senate and House control. Those brackets sort from Democrat to Republican or by highest odds.
+
 Senate and governor dossiers include Polymarket margin-of-victory brackets, and say when a race has no such market. Each market opens from the Democratic outcome to the Republican outcome, widest Democratic margin first, and can be switched to highest odds. Alaska and Maine Senate each have a first-round market and a final-round market, and each one sorts on its own. The bottom of the Senate tab has a tossup detector for Alaska, Iowa, Kansas, Maine, Michigan, Ohio, and Texas that compares your Republican or Democrat picks with Polymarket’s swing-state map and lists every traded map from most likely to least.
 
 Polymarket prices refresh from the public Gamma API on the server. Polls and VoteHub remain snapshots.
@@ -36,7 +38,7 @@ npm start
 ## Where the numbers come from
 
 - [Generic congressional ballot aggregate polls](https://en.wikipedia.org/wiki/2026_United_States_House_of_Representatives_elections#Generic_congressional_ballot_aggregate_polls), Wikipedia, updated October 30, 2026
-- [Polymarket](https://polymarket.com/politics/senate-elections), live Yes prices from the public Gamma API
+- [Polymarket](https://polymarket.com/politics/senate-elections), live Yes prices from the public Gamma API, including the [House popular vote margin of victory](https://polymarket.com/event/2026-midterms-house-popular-vote-margin-of-victory-224)
 - [FiftyPlusOne, 2026 averages](https://fiftyplusone.news/averages)
 - [Electoral-Vote.com, Senate averages](https://electoral-vote.com/evp2026/Senate/averages.html)
 - [270toWin, 2026 Senate polls](https://www.270towin.com/polls/latest-2026-senate-election-polls/) and [governor polls](https://www.270towin.com/2026-governor-polls/texas), fetched November 1, 2026

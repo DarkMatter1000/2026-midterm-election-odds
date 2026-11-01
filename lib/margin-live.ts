@@ -10,6 +10,28 @@
 
 export const MARGIN_AS_OF = "October 31, 2026, 10:44 p.m. CT";
 
+/** House popular-vote (generic ballot) margin. Gamma snapshot November 1, 2026, 1:10 a.m. CT. */
+export const GENERIC_BALLOT_MARGIN: MarginEvent = {
+  title: "House popular vote margin of victory",
+  slug: "2026-midterms-house-popular-vote-margin-of-victory-224",
+  url: "https://polymarket.com/event/2026-midterms-house-popular-vote-margin-of-victory-224",
+  brackets: [
+    { label: "Democrats 16%+", price: 3.9 },
+    { label: "Democrats 14-16%", price: 4.3 },
+    { label: "Democrats 12-14%", price: 12.9 },
+    { label: "Democrats 10-12%", price: 22.0 },
+    { label: "Democrats 8-10%", price: 29.0 },
+    { label: "Democrats 6-8%", price: 16.0 },
+    { label: "Democrats 4-6%", price: 7.5 },
+    { label: "Democrats 2-4%", price: 3.8 },
+    { label: "Democrats 0-2%", price: 1.5 },
+    { label: "Republicans 0-2%", price: 2.5 },
+    { label: "Republicans 2-4%", price: 1.9 },
+    { label: "Republicans 4-6%", price: 1.3 },
+    { label: "Republicans 6%+", price: 0.9 },
+  ],
+};
+
 export type MarginBracket = {
   /** Polymarket group label, as published. */
   label: string;

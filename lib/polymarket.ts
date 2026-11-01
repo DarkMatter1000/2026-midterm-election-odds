@@ -3,7 +3,12 @@
 
 import { GOVERNORS } from "@/lib/governor-live";
 import { HOUSE_MARKETS, type HouseMarket } from "@/lib/house-districts";
-import { GOVERNOR_MARGINS, SENATE_MARGINS, type MarginEvent } from "@/lib/margin-live";
+import {
+  GENERIC_BALLOT_MARGIN,
+  GOVERNOR_MARGINS,
+  SENATE_MARGINS,
+  type MarginEvent,
+} from "@/lib/margin-live";
 import {
   HOUSE_CONTROL,
   SENATE,
@@ -64,6 +69,7 @@ export function allPolymarketSlugs(): string[] {
   const slugs = new Set<string>();
   slugs.add(slugFromUrl(SENATE_CONTROL.url));
   slugs.add(slugFromUrl(HOUSE_CONTROL.url));
+  slugs.add(GENERIC_BALLOT_MARGIN.slug);
   slugs.add(TOSSUP_EVENT.slug);
   for (const race of Object.values(SENATE)) slugs.add(slugFromUrl(race.polymarketUrl));
   for (const race of Object.values(GOVERNORS)) slugs.add(slugFromUrl(race.polymarketUrl));
@@ -257,6 +263,20 @@ export function applyHouseMarkets(
   );
 }
 
+export function applyMarginEvent(event: MarginEvent, events: Record<string, LiveEvent>): MarginEvent {
+  const live = events[event.slug];
+  if (!live) return event;
+  return {
+    ...event,
+    brackets: event.brackets.map((bracket) => {
+      const hit = live.outcomes.find(
+        (outcome) => normalize(outcome.title) === normalize(bracket.label),
+      );
+      return hit ? { ...bracket, price: hit.price } : bracket;
+    }),
+  };
+}
+
 export function applyMarginEvents(
   byState: Record<string, MarginEvent[]>,
   events: Record<string, LiveEvent>,
@@ -264,19 +284,7 @@ export function applyMarginEvents(
   return Object.fromEntries(
     Object.entries(byState).map(([abbr, list]) => [
       abbr,
-      list.map((event) => {
-        const live = events[event.slug];
-        if (!live) return event;
-        return {
-          ...event,
-          brackets: event.brackets.map((bracket) => {
-            const hit = live.outcomes.find(
-              (outcome) => normalize(outcome.title) === normalize(bracket.label),
-            );
-            return hit ? { ...bracket, price: hit.price } : bracket;
-          }),
-        };
-      }),
+      list.map((event) => applyMarginEvent(event, events)),
     ]),
   );
 }

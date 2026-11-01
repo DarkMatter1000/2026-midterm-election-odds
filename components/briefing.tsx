@@ -407,6 +407,31 @@ function BriefingBody() {
           </article>
         </section>
 
+        <section
+          aria-label="Generic ballot margin of victory"
+          className="overflow-hidden rounded-xl border bg-card p-5"
+          data-testid="generic-ballot-margin"
+        >
+          <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+            Generic ballot margin of victory
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+            Polymarket’s House popular-vote margin, the same question as the national generic
+            ballot. Democrat to Republican runs from the widest Democratic win to the widest
+            Republican win. Odds puts the highest price first. These prices do not move with the
+            slider. The inactive Other contract is not listed.
+          </p>
+          <div className="mt-4">
+            <MarginMarket
+              event={live.genericBallotMargin}
+              candidates={[
+                { name: "Democrats", party: "D", price: 0 },
+                { name: "Republicans", party: "R", price: 0 },
+              ]}
+            />
+          </div>
+        </section>
+
         <Tabs
           value={chamber}
           onValueChange={(value) => {
@@ -745,6 +770,10 @@ function BriefingBody() {
               {" "}and{" "}
               <a className="underline underline-offset-4" href={live.houseControl.url}>
                 which party will win the House
+              </a>
+              , and the{" "}
+              <a className="underline underline-offset-4" href={live.genericBallotMargin.url}>
+                House popular vote margin of victory
               </a>
               , live from Polymarket when the Gamma fetch succeeds
             </li>
