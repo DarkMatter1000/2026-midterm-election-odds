@@ -97,6 +97,33 @@ function customDeltaLabel(value: number): string {
   return formatMargin(value);
 }
 
+function AmericanFlag({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 19 10"
+      className={className}
+      role="img"
+      aria-label="American flag"
+    >
+      <rect width="19" height="10" fill="#bf0a30" />
+      <rect y="0.77" width="19" height="0.77" fill="#fff" />
+      <rect y="2.31" width="19" height="0.77" fill="#fff" />
+      <rect y="3.85" width="19" height="0.77" fill="#fff" />
+      <rect y="5.38" width="19" height="0.77" fill="#fff" />
+      <rect y="6.92" width="19" height="0.77" fill="#fff" />
+      <rect y="8.46" width="19" height="0.77" fill="#fff" />
+      <rect width="7.6" height="5.38" fill="#002868" />
+      {Array.from({ length: 9 }, (_, row) =>
+        Array.from({ length: row % 2 === 0 ? 6 : 5 }, (_, col) => {
+          const x = row % 2 === 0 ? 0.63 + col * 1.27 : 1.27 + col * 1.27;
+          const y = 0.38 + row * 0.58;
+          return <circle key={`${row}-${col}`} cx={x} cy={y} r="0.18" fill="#fff" />;
+        }),
+      )}
+    </svg>
+  );
+}
+
 function clampCustomDelta(value: number): number {
   if (!Number.isFinite(value)) return 0;
   const next = Number(value.toFixed(1));
@@ -246,8 +273,12 @@ function BriefingBody() {
             <p className="text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
               Midterm briefing
             </p>
-            <h1 className="font-heading text-5xl tracking-tight text-balance sm:text-6xl">
-              Before Tuesday
+            <h1 className="font-heading text-4xl tracking-tight text-balance sm:text-5xl lg:text-6xl">
+              2026 Midterm Generic Ballot{" "}
+              <span className="whitespace-nowrap">
+                Swingometer{" "}
+                <AmericanFlag className="mb-[0.08em] inline-block h-[0.72em] w-[1.15em] align-baseline" />
+              </span>
             </h1>
           </div>
           <div className="max-w-sm text-sm leading-6 text-muted-foreground sm:text-right">

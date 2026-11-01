@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Before Tuesday — 2026 midterm briefing",
+  title: "2026 Midterm Generic Ballot Swingometer",
   description:
     "Senate and governor chances, the generic ballot in every state, and House districts with their real outlines, before the November 3, 2026 election.",
 };
