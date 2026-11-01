@@ -666,9 +666,10 @@ function BriefingBody() {
           <p>
             Each Senate chance is half Polymarket and half the polls, when the same two
             candidates appear in both. Polymarket contributes its live Yes price from Gamma.
-            Polls stay the October 31 snapshot. Each polling aggregator contributes that candidate’s
-            share of the two-candidate average, leaving undecided voters out. Those aggregator
-            shares are averaged first. The slider then moves only that polling half: a delta
+            Polls stay a snapshot: FiftyPlusOne and Electoral-Vote.com from October 31, 2026,
+            and 270toWin and RealClearPolling from November 1, 2026. Each aggregator
+            contributes that candidate’s share of the two-candidate average, leaving
+            undecided voters out. Those aggregator shares are averaged first. The slider then moves only that polling half: a delta
             of +1.0 adds 0.5 points of two-party share to the Democrat, or to the independent
             challenger where there is no Democrat, and subtracts 0.5 from the Republican.
             That shifted poll share is split evenly with the live Polymarket price, then
@@ -749,12 +750,22 @@ function BriefingBody() {
             </li>
             <li>
               <a className="underline underline-offset-4" href="https://fiftyplusone.news/averages">
-                FiftyPlusOne, 2026 Senate averages
+                FiftyPlusOne, 2026 Senate and governor averages
               </a>
             </li>
             <li>
               <a className="underline underline-offset-4" href="https://electoral-vote.com/evp2026/Senate/averages.html">
                 Electoral-Vote.com, Senate averages
+              </a>
+            </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://www.270towin.com/polls/latest-2026-senate-election-polls/">
+                270toWin, 2026 Senate and governor polling averages
+              </a>
+            </li>
+            <li>
+              <a className="underline underline-offset-4" href="https://www.realclearpolling.com/elections/senate/2026/toss-ups">
+                RealClearPolling, 2026 Senate and governor averages
               </a>
             </li>
             <li>
@@ -1513,7 +1524,7 @@ function PollTable({ race, office = "Senate" }: { race: SenateRace; office?: str
   if (race.polls.length === 0) {
     return (
       <p className="text-sm leading-6 text-muted-foreground">
-        No 2026 polling average from FiftyPlusOne or Electoral-Vote.com.
+        No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling.
       </p>
     );
   }
@@ -1833,15 +1844,17 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
           gray. Alaska and Hawaii are on the map.
         </p>
         <p className="text-sm leading-7 text-muted-foreground">
-          Winner prices refresh from Polymarket’s Gamma API. Polls stay the October 31 snapshot.
-          Where FiftyPlusOne publishes a 2026 average for the same two candidates, the
-          chance is half that candidate’s share of the two-candidate average and half the
-          Polymarket Yes price, then scaled so the quoted chances sum to about 100. A
+          Winner prices refresh from Polymarket’s Gamma API. Polls stay a snapshot:
+          FiftyPlusOne from October 31, 2026, and 270toWin and RealClearPolling from
+          November 1, 2026. Where those aggregators publish a 2026 average for the same two
+          candidates, the chance is half that candidate’s share of the two-candidate average
+          and half the Polymarket Yes price, then scaled so the quoted chances sum to about 100.
+          Extra aggregators change only the polling half. The Polymarket weight stays 50%. A
           generic-ballot move of +1.0 adds 1.0 point to a polled projected margin and 0.5 points
           of two-party share on the polling half only. The Polymarket price is the live Yes price. A
           per-state generic adjustment moves only that state. Turnout does not move these chances
           or margins. Electoral-Vote.com does not publish a 2026 governor polling average, so it
-          is not blended in. A race with no FiftyPlusOne average is Polymarket-only, and the
+          is not blended in. A race with no matching average is Polymarket-only, and the
           margin shown is that state’s generic-ballot estimate. The map uses that same margin.
         </p>
       </div>

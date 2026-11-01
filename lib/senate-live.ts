@@ -1,10 +1,14 @@
 // Senate snapshot fetched October 31, 2026.
 // Polymarket prices are the Yes price on each candidate contract, in percent,
 // from the Gamma API at 4:10 p.m. CT (2026-10-31T21:10:31Z).
-// Polling averages are FiftyPlusOne (https://fiftyplusone.news/averages)
-// and Electoral-Vote.com (https://electoral-vote.com/evp2026/Senate/averages.html).
-// Electoral-Vote rows that cite the 2020 election, or that omit a candidate
-// who is actually on the ballot, are not included.
+// Polling averages are FiftyPlusOne (https://fiftyplusone.news/averages),
+// Electoral-Vote.com (https://electoral-vote.com/evp2026/Senate/averages.html),
+// 270toWin state pages, and RealClearPolling where that site publishes an
+// RCP Average. Electoral-Vote rows that cite the 2020 election, or that omit
+// a candidate who is actually on the ballot, are not included. 270toWin and
+// RealClearPolling were fetched November 1, 2026. The chance is still half
+// the Polymarket Yes price and half the average of those two-candidate
+// shares. Extra aggregators change only the polling half.
 // The Texas Democrat is shown as James Talafreako. The Polymarket contract
 // and both polling averages are for the ballot name on that market.
 
@@ -65,6 +69,19 @@ function vote(asOf: string, shares: Share[]): PollSource {
   return { source: "Electoral-Vote.com", url: EV, asOf, shares };
 }
 
+function twowin(slug: string, shares: Share[]): PollSource {
+  return {
+    source: "270toWin",
+    url: `https://www.270towin.com/2026-senate-polls/${slug}`,
+    asOf: "Fetched Nov 1, 2026",
+    shares,
+  };
+}
+
+function rcp(url: string, asOf: string, shares: Share[]): PollSource {
+  return { source: "RealClearPolling", url, asOf, shares };
+}
+
 function s(name: string, pct: number): Share {
   return { name, pct };
 }
@@ -97,6 +114,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Mary Peltola", 50.2), s("Dan Sullivan", 48.2)]),
       vote("Polls through Oct 29, 2026", [s("Mary Peltola", 51), s("Dan Sullivan", 49)]),
+      twowin("alaska", [s("Mary Peltola", 48.5), s("Dan Sullivan", 45.0)]),
+      rcp(
+        "https://www.realclearpolling.com/elections/senate/2026/toss-ups",
+        "Polls Sep 28 – Oct 16, 2026",
+        [s("Mary Peltola", 49.4), s("Dan Sullivan", 48.2)],
+      ),
     ],
     "Alaska uses ranked-choice voting. These polling averages are head-to-head. Polymarket is the chance that candidate wins the race.",
   ),
@@ -104,7 +127,10 @@ export const SENATE: Record<string, SenateRace> = {
     "alabama-senate-election-winner-154",
     [person("Everett Wess", "D", 1.9), person("Barry Moore", "R", 98.2)],
     ["Everett Wess", "Barry Moore"],
-    [vote("Polls through Jul 11, 2026", [s("Everett Wess", 32), s("Barry Moore", 47)])],
+    [
+      vote("Polls through Jul 11, 2026", [s("Everett Wess", 32), s("Barry Moore", 47)]),
+      twowin("alabama", [s("Everett Wess", 36.0), s("Barry Moore", 52.7)]),
+    ],
   ),
   AR: market(
     "arkansas-senate-election-winner",
@@ -117,14 +143,14 @@ export const SENATE: Record<string, SenateRace> = {
     [person("John Hickenlooper", "D", 99.2), person("Mark Baisley", "R", 0.9)],
     [],
     [],
-    "Neither FiftyPlusOne nor Electoral-Vote.com has a 2026 polling average for Colorado. Electoral-Vote.com still shows the 2020 result, which is not used here. The chance is Polymarket only.",
+    "Neither FiftyPlusOne, Electoral-Vote.com, 270toWin, nor RealClearPolling has a 2026 polling average for Colorado. Electoral-Vote.com still shows the 2020 result, which is not used here. The chance is Polymarket only.",
   ),
   DE: market(
     "delaware-senate-election-winner",
     [person("Chris Coons", "D", 98.5), person("Michael Katz", "R", 1.7)],
     [],
     [],
-    "Polymarket prices the Democratic and Republican contracts, not the nominees by name. Those prices are listed next to Chris Coons and Michael Katz. No 2026 polling average from these two aggregators is included.",
+    "Polymarket prices the Democratic and Republican contracts, not the nominees by name. Those prices are listed next to Chris Coons and Michael Katz. No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included.",
   ),
   FL: market(
     "florida-senate-election-winner",
@@ -133,6 +159,7 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Angie Nixon", 43.6), s("Ashley Moody", 49.6)]),
       vote("Polls through Oct 15, 2026", [s("Angie Nixon", 44), s("Ashley Moody", 51)]),
+      twowin("florida", [s("Angie Nixon", 44.5), s("Ashley Moody", 50.2)]),
     ],
   ),
   GA: market(
@@ -142,6 +169,7 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Jon Ossoff", 52.6), s("Mike Collins", 42.3)]),
       vote("Polls through Oct 3, 2026", [s("Jon Ossoff", 55), s("Mike Collins", 45)]),
+      twowin("georgia", [s("Jon Ossoff", 53.3), s("Mike Collins", 43.5)]),
     ],
     "Georgia requires a majority. This page does not add a December runoff on top of the Polymarket price or the polling averages.",
   ),
@@ -152,6 +180,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Josh Turek", 46.1), s("Ashley Hinson", 45.7)]),
       vote("Polls through Oct 12, 2026", [s("Josh Turek", 46), s("Ashley Hinson", 46)]),
+      twowin("iowa", [s("Josh Turek", 45.2), s("Ashley Hinson", 45.8)]),
+      rcp(
+        "https://www.realclearpolling.com/elections/senate/2026/toss-ups",
+        "Polls Sep 29 – Oct 22, 2026",
+        [s("Josh Turek", 45.5), s("Ashley Hinson", 46.1)],
+      ),
     ],
   ),
   ID: market(
@@ -159,13 +193,16 @@ export const SENATE: Record<string, SenateRace> = {
     [person("Todd Achilles", "I", 3.1), person("Jim Risch", "R", 96.5)],
     [],
     [],
-    "Polymarket lists Todd Achilles as an independent. A separate Democratic contract is 0.1 in 100 and is not shown. No 2026 polling average from these aggregators is included, so the chance is Polymarket only.",
+    "Polymarket lists Todd Achilles as an independent. A separate Democratic contract is 0.1 in 100 and is not shown. No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included, so the chance is Polymarket only.",
   ),
   IL: market(
     "illinois-senate-election-winner",
     [person("Juliana Stratton", "D", 98.9), person("Don Tracy", "R", 1.2)],
     ["Juliana Stratton", "Don Tracy"],
-    [vote("Polls through Oct 30, 2026", [s("Juliana Stratton", 56), s("Don Tracy", 44)])],
+    [
+      vote("Polls through Oct 30, 2026", [s("Juliana Stratton", 56), s("Don Tracy", 44)]),
+      twowin("illinois", [s("Juliana Stratton", 52.5), s("Don Tracy", 40.0)]),
+    ],
   ),
   KS: market(
     "kansas-senate-election-winner",
@@ -174,6 +211,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Adam Hamilton", 48.8), s("Roger Marshall", 45.4)]),
       vote("Polls through Oct 28, 2026", [s("Adam Hamilton", 52), s("Roger Marshall", 46)]),
+      twowin("kansas", [s("Adam Hamilton", 49.0), s("Roger Marshall", 45.2)]),
+      rcp(
+        "https://www.realclearpolling.com/polls/senate/general/2026/kansas/hamilton-vs-marshall",
+        "Polls Sep 8 – Oct 14, 2026",
+        [s("Adam Hamilton", 45.7), s("Roger Marshall", 46.0)],
+      ),
     ],
   ),
   KY: market(
@@ -181,7 +224,7 @@ export const SENATE: Record<string, SenateRace> = {
     [person("Charles Booker", "D", 2.6), person("Andy Barr", "R", 97.6)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
   LA: market(
     "louisiana-senate-election-winner",
@@ -193,7 +236,15 @@ export const SENATE: Record<string, SenateRace> = {
     "massachusetts-senate-election-winner",
     [person("Ed Markey", "D", 99.2), person("John Deaton", "R", 0.9)],
     ["Ed Markey", "John Deaton"],
-    [vote("Polls through Oct 12, 2026", [s("Ed Markey", 56), s("John Deaton", 29)])],
+    [
+      vote("Polls through Oct 12, 2026", [s("Ed Markey", 56), s("John Deaton", 29)]),
+      twowin("massachusetts", [s("Ed Markey", 56.3), s("John Deaton", 28.8)]),
+      rcp(
+        "https://www.realclearpolling.com/polls/senate/general/2026/massachusetts/deaton-vs-markey",
+        "Polls Sep 14 – Oct 18, 2026",
+        [s("Ed Markey", 55.8), s("John Deaton", 29.8)],
+      ),
+    ],
   ),
   ME: market(
     "maine-senate-election-winner",
@@ -202,6 +253,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Troy Jackson", 49.5), s("Susan Collins", 46)]),
       vote("Polls through Oct 11, 2026", [s("Troy Jackson", 49), s("Susan Collins", 47)]),
+      twowin("maine", [s("Troy Jackson", 49.2), s("Susan Collins", 45.6)]),
+      rcp(
+        "https://www.realclearpolling.com/elections/senate/2026/toss-ups",
+        "Polls Sep 23 – Oct 23, 2026",
+        [s("Troy Jackson", 48.9), s("Susan Collins", 47.5)],
+      ),
     ],
     "Maine uses ranked-choice voting. These polling averages are head-to-head. Polymarket is the chance that candidate wins the race.",
   ),
@@ -212,6 +269,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Abdul El-Sayed", 49.3), s("Mike Rogers", 44.6)]),
       vote("Polls through Oct 9, 2026", [s("Abdul El-Sayed", 53), s("Mike Rogers", 47)]),
+      twowin("michigan", [s("Abdul El-Sayed", 49.8), s("Mike Rogers", 44.3)]),
+      rcp(
+        "https://www.realclearpolling.com/elections/senate/2026/toss-ups",
+        "Polls Sep 24 – Oct 22, 2026",
+        [s("Abdul El-Sayed", 47.9), s("Mike Rogers", 46.0)],
+      ),
     ],
   ),
   MN: market(
@@ -221,6 +284,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Peggy Flanagan", 49.5), s("Michele Tafoya", 42)]),
       vote("Polls through Oct 28, 2026", [s("Peggy Flanagan", 48), s("Michele Tafoya", 41)]),
+      twowin("minnesota", [s("Peggy Flanagan", 48.2), s("Michele Tafoya", 42.2)]),
+      rcp(
+        "https://www.realclearpolling.com/polls/senate/general/2026/minnesota/tafoya-vs-flanagan",
+        "Polls Oct 2 – Oct 21, 2026",
+        [s("Peggy Flanagan", 46.6), s("Michele Tafoya", 43.2)],
+      ),
     ],
   ),
   MS: market(
@@ -237,7 +306,10 @@ export const SENATE: Record<string, SenateRace> = {
       person("Alani Bankhead", "D", 0.1),
     ],
     [],
-    [fifty([s("Kurt Alme", 40.1), s("Seth Bodnar", 32.2), s("Alani Bankhead", 15.7)])],
+    [
+      fifty([s("Kurt Alme", 40.1), s("Seth Bodnar", 32.2), s("Alani Bankhead", 15.7)]),
+      twowin("montana", [s("Kurt Alme", 45.5), s("Seth Bodnar", 27.5), s("Alani Bankhead", 20.0)]),
+    ],
     "FiftyPlusOne includes Seth Bodnar, who is not a named contract on this Polymarket market. The chance below is the Polymarket price and is not averaged with the polls.",
   ),
   NC: market(
@@ -247,13 +319,22 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Roy Cooper", 51.8), s("Michael Whatley", 41.7)]),
       vote("Polls through Oct 7, 2026", [s("Roy Cooper", 52), s("Michael Whatley", 42)]),
+      twowin("north-carolina", [s("Roy Cooper", 53.2), s("Michael Whatley", 41.6)]),
+      rcp(
+        "https://www.realclearpolling.com/polls/senate/general/2026/north-carolina/cooper-vs-whatley",
+        "Polls Sep 27 – Oct 20, 2026",
+        [s("Roy Cooper", 50.7), s("Michael Whatley", 40.1)],
+      ),
     ],
   ),
   NE: market(
     "nebraska-senate-election-winner",
     [person("Dan Osborn", "I", 28), person("Pete Ricketts", "R", 72.5)],
     ["Dan Osborn", "Pete Ricketts"],
-    [fifty([s("Dan Osborn", 45.5), s("Pete Ricketts", 47.2)])],
+    [
+      fifty([s("Dan Osborn", 45.5), s("Pete Ricketts", 47.2)]),
+      twowin("nebraska", [s("Dan Osborn", 43.6), s("Pete Ricketts", 46.2)]),
+    ],
     "Dan Osborn is an independent, not a Democratic nominee. Polymarket labels his contract Independent.",
   ),
   NH: market(
@@ -263,6 +344,7 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Chris Pappas", 49.5), s("John Sununu", 42.6)]),
       vote("Polls through Oct 12, 2026", [s("Chris Pappas", 50), s("John Sununu", 43)]),
+      twowin("new-hampshire", [s("Chris Pappas", 49.8), s("John Sununu", 42.5)]),
     ],
   ),
   NJ: market(
@@ -270,7 +352,7 @@ export const SENATE: Record<string, SenateRace> = {
     [person("Cory Booker", "D", 98.7), person("Justin Murphy", "R", 1.4)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
   NM: market(
     "new-mexico-senate-election-winner",
@@ -285,6 +367,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Sherrod Brown", 48.2), s("Jon Husted", 45.4)]),
       vote("Polls through Oct 17, 2026", [s("Sherrod Brown", 47), s("Jon Husted", 42)]),
+      twowin("ohio", [s("Sherrod Brown", 47.8), s("Jon Husted", 45.8)]),
+      rcp(
+        "https://www.realclearpolling.com/polls/senate/special-election/2026/ohio/husted-vs-brown",
+        "Polls Sep 22 – Oct 22, 2026",
+        [s("Sherrod Brown", 48.2), s("Jon Husted", 44.9)],
+      ),
     ],
   ),
   OK: market(
@@ -292,20 +380,23 @@ export const SENATE: Record<string, SenateRace> = {
     [person("N'Kiyla Thomas", "D", 2.2), person("Kevin Hern", "R", 97.9)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only. The market names the Democrat N’Kiyla “Jasmine” Thomas.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only. The market names the Democrat N’Kiyla “Jasmine” Thomas.",
   ),
   OR: market(
     "oregon-senate-election-winner",
     [person("Jeff Merkley", "D", 98.8), person("David Brock Smith", "R", 1.2)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
   RI: market(
     "rhode-island-senate-election-winner",
     [person("Jack Reed", "D", 98.8), person("Raymond McKay", "R", 1.4)],
     ["Jack Reed", "Raymond McKay"],
-    [vote("Polls through Oct 11, 2026", [s("Jack Reed", 59), s("Raymond McKay", 25)])],
+    [
+      vote("Polls through Oct 11, 2026", [s("Jack Reed", 59), s("Raymond McKay", 25)]),
+      twowin("rhode-island", [s("Jack Reed", 55.7), s("Raymond McKay", 30.0)]),
+    ],
   ),
   SC: market(
     "south-carolina-senate-election-winner",
@@ -314,6 +405,7 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("Annie Andrews", 45.6), s("Darline Graham Nordone", 46)]),
       vote("Polls through Aug 28, 2026", [s("Annie Andrews", 38), s("Darline Graham Nordone", 51)]),
+      twowin("south-carolina", [s("Annie Andrews", 45.2), s("Darline Graham Nordone", 47.6)]),
     ],
     "Lindsey Graham died on July 11, 2026, after winning the Republican nomination. Darline Graham Nordone is the Republican on the November ballot.",
   ),
@@ -321,7 +413,10 @@ export const SENATE: Record<string, SenateRace> = {
     "south-dakota-senate-election-winner",
     [person("Brian Bengs", "I", 5.7), person("Mike Rounds", "R", 94)],
     ["Brian Bengs", "Mike Rounds"],
-    [fifty([s("Brian Bengs", 41.3), s("Mike Rounds", 51.5)])],
+    [
+      fifty([s("Brian Bengs", 41.3), s("Mike Rounds", 51.5)]),
+      twowin("south-dakota", [s("Brian Bengs", 39.5), s("Mike Rounds", 54.5)]),
+    ],
     "Polymarket lists Brian Bengs as an independent.",
   ),
   TN: market(
@@ -329,7 +424,7 @@ export const SENATE: Record<string, SenateRace> = {
     [person("Marquita Bradshaw", "D", 2.4), person("Bill Hagerty", "R", 97.7)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
   TX: market(
     "texas-senate-election-winner",
@@ -338,6 +433,12 @@ export const SENATE: Record<string, SenateRace> = {
     [
       fifty([s("James Talafreako", 49.2), s("Ken Paxton", 45.8)]),
       vote("Polls through Oct 18, 2026", [s("James Talafreako", 50), s("Ken Paxton", 47)]),
+      twowin("texas", [s("James Talafreako", 49.4), s("Ken Paxton", 46.1)]),
+      rcp(
+        "https://www.realclearpolling.com/elections/senate/2026/texas",
+        "Polls Oct 8 – Oct 21, 2026",
+        [s("James Talafreako", 48.4), s("Ken Paxton", 46.9)],
+      ),
     ],
   ),
   VA: market(
@@ -351,14 +452,14 @@ export const SENATE: Record<string, SenateRace> = {
     [person("Rachel Fetty Anderson", "D", 1.6), person("Shelley Moore Capito", "R", 98.2)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
   WY: market(
     "wyoming-senate-election-winner",
     [person("James Byrd", "D", 1.4), person("Harriet Hageman", "R", 98.6)],
     [],
     [],
-    "No 2026 polling average from these aggregators is included. The chance is Polymarket only.",
+    "No 2026 polling average from FiftyPlusOne, Electoral-Vote.com, 270toWin, or RealClearPolling is included. The chance is Polymarket only.",
   ),
 };
 

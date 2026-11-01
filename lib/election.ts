@@ -2,7 +2,8 @@
 // Generic-ballot averages: Wikipedia's compilation of five public aggregators,
 // updated October 30, 2026.
 // Senate chances: lib/senate-live.ts, live Polymarket Yes prices when Gamma answers,
-// averaged with FiftyPlusOne and Electoral-Vote.com where both name the same candidates.
+// averaged with FiftyPlusOne, Electoral-Vote.com, 270toWin, and RealClearPolling
+// where those aggregators name the same candidates. The Polymarket half stays 50%.
 // 2024 presidential margins: certified totals compiled by Wikipedia from the
 // Federal Election Commission report.
 
