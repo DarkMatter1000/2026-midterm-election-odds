@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { Search } from "lucide-react";
+import { GovernorMap } from "@/components/governor-map";
 import { HouseMap, districtById, districtTitle, isNewerThanCensus } from "@/components/house-map";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,6 +35,21 @@ import {
 import { HOUSE_2022, HOUSE_2022_FEC } from "@/lib/house-2022";
 import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
 import { GOVERNOR_POLYMARKET_AS_OF, GOVERNORS, governorProjection } from "@/lib/governor-live";
+import {
+  HOUSE_2024_DISTRICT,
+  HOUSE_MARKETS,
+  HOUSE_POLYMARKET_AS_OF,
+  HOUSE_PRES_PAGE,
+  HOUSE_PRES_SOURCE,
+  HOUSE_RESULT_SOURCE,
+  PRES_2024,
+  districtGeneric,
+  districtShade,
+  houseChances,
+  housePollMargin,
+  houseRace,
+  type DistrictShade,
+} from "@/lib/house-live";
 import { HOUSE_2024 } from "@/lib/house-2024";
 import { DISTRICT_PATHS } from "@/lib/district-paths";
 import {
@@ -286,9 +302,12 @@ export function Briefing() {
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Delta = this slider minus {NATIONAL_GENERIC.marginD.toFixed(1)}. A delta of +1.0
               adds 1.0 point toward Democrats on every state generic-ballot estimate, on every
-              Senate polling margin, and on every governor polling margin. A per-state adjustment
-              is applied after that, and only to that state. Turnout does not move those chances
-              or margins. The range runs from even to D+16.0. Refresh the page
+              House district generic-ballot estimate, on every Senate polling margin, and on every
+              governor polling margin. Where a House race has a polling average, that projected
+              margin moves by the same point, and only the polling half of the chance moves. A
+              Polymarket-only price stays the snapshot. A per-state adjustment is applied after
+              that, and only to that state. Turnout does not move those chances or margins. The
+              range runs from even to D+16.0. Refresh the page
               to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
             </p>
           </article>
@@ -621,9 +640,12 @@ export function Briefing() {
           </p>
           <p>
             Governor races are on their own tab and use this same split, for the states that
-            elect a governor in 2026. House districts are on their own tab. Each district is
-            outlined from the Census Bureau’s 119th Congress cartographic boundaries and colored
-            with that state’s generic-ballot estimate.
+            elect a governor in 2026. The map colors those states by the projected margin and
+            leaves every other state gray. House districts are on their own tab. Each district
+            is outlined from the Census Bureau’s 119th Congress cartographic boundaries. Its
+            generic-ballot estimate starts from that district’s 2024 presidential margin. Where
+            Polymarket prices a Democrat and a Republican, the color is the price gap. Where it
+            does not, the color is the generic-ballot estimate. Those are not the same number.
           </p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
@@ -680,7 +702,7 @@ export function Briefing() {
             <GovernorPanel shiftFor={shiftFor} />
           </TabsContent>
           <TabsContent value="house" className="min-w-0">
-            <HousePanel margins={margins} />
+            <HousePanel shiftFor={shiftFor} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1411,24 +1433,32 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
       const state = getState(abbr);
       return state ? [{ abbr, race, state }] : [];
     })
-    .sort((a, b) => closeness(a.race, shiftFor(a.abbr)) - closeness(b.race, shiftFor(b.abbr)));
-  const current = rows.find((row) => row.abbr === selected) ?? rows[0];
+    .sort((a, b) => a.state.name.localeCompare(b.state.name));
+  const current = rows.find((row) => row.abbr === selected) ?? null;
+  const selectedState = getState(selected);
   const delta = current ? shiftFor(current.abbr) : 0;
   const people = current ? quotedChances(current.race, delta) : [];
   const projection = current ? governorProjection(current.race, current.state.trumpMargin2024, delta) : null;
   const blended = current ? blendsPolls(current.race) : false;
+  const margins = Object.fromEntries(
+    rows.map((row) => [
+      row.abbr,
+      governorProjection(row.race, row.state.trumpMargin2024, shiftFor(row.abbr)).margin,
+    ]),
+  );
 
   return (
-    <section className="flex flex-col gap-6" aria-labelledby="governor-heading">
+    <section className="flex min-w-0 flex-col gap-6" aria-labelledby="governor-heading">
       <div className="flex max-w-3xl flex-col gap-3">
         <h2 id="governor-heading" className="font-heading text-3xl">
           Governor races
         </h2>
         <p className="text-sm leading-7">
-          Thirty-six states elect a governor on November 3, 2026. New Hampshire and Vermont are
-          here because those terms are two years. Kentucky, Louisiana, and Mississippi elect
-          governors in 2027. New Jersey and Virginia voted in 2025. The rest of the states
-          without a line elect a governor in 2028.
+          Thirty-six states elect a governor on November 3, 2026. The map is the main view.
+          New Hampshire and Vermont are included because those terms are two years. Kentucky,
+          Louisiana, and Mississippi elect governors in 2027. New Jersey and Virginia voted in
+          2025. Every other state without a color elects a governor in 2028. Those states stay
+          gray. Alaska and Hawaii are on the map.
         </p>
         <p className="text-sm leading-7 text-muted-foreground">
           Prices are the {GOVERNOR_POLYMARKET_AS_OF} Gamma API snapshot. They do not update on
@@ -1440,53 +1470,45 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
           per-state generic adjustment moves only that state. Turnout does not move these chances
           or margins. Electoral-Vote.com does not publish a 2026 governor polling average, so it
           is not blended in. A race with no FiftyPlusOne average is Polymarket-only, and the
-          margin shown is that state’s generic-ballot estimate.
+          margin shown is that state’s generic-ballot estimate. The map uses that same margin.
         </p>
       </div>
-      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-        <div className="min-w-0 overflow-hidden rounded-xl border bg-card">
-          {rows.map((row) => {
-            const shift = shiftFor(row.abbr);
-            const quoted = quotedChances(row.race, shift);
-            const rowProjection = governorProjection(row.race, row.state.trumpMargin2024, shift);
-            const rowBlend = blendsPolls(row.race);
-            return (
-              <article
-                key={row.abbr}
-                className={`grid gap-3 border-b p-4 last:border-0 md:grid-cols-[11rem_1fr] ${selected === row.abbr ? "bg-muted/70" : ""}`}
-              >
-                <div>
-                  <Button
-                    variant="ghost"
-                    className="h-auto px-0 text-left font-heading text-2xl hover:bg-transparent"
-                    onClick={() => setSelected(row.abbr)}
-                    aria-current={selected === row.abbr ? "true" : undefined}
-                    data-testid={`governor-row-${row.abbr}`}
+      <div className="grid min-w-0 items-start gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.8fr)]">
+        <div className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:p-5">
+          <GovernorMap selected={selected} margins={margins} onSelect={setSelected} />
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {rows.map((row) => {
+              const shift = shiftFor(row.abbr);
+              const rowProjection = governorProjection(row.race, row.state.trumpMargin2024, shift);
+              const rowBlend = blendsPolls(row.race);
+              return (
+                <button
+                  key={row.abbr}
+                  type="button"
+                  className={`flex min-w-0 items-baseline justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted ${selected === row.abbr ? "bg-muted" : ""}`}
+                  onClick={() => setSelected(row.abbr)}
+                  aria-current={selected === row.abbr ? "true" : undefined}
+                  data-testid={`governor-row-${row.abbr}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate">{row.state.name}</span>
+                    <span className="text-xs text-muted-foreground" data-testid={`governor-basis-${row.abbr}`}>
+                      {rowBlend ? "Polymarket and polls" : "Polymarket-only"}
+                    </span>
+                  </span>
+                  <span
+                    className="shrink-0 text-right tabular-nums"
+                    data-testid={`governor-margin-${row.abbr}`}
+                    data-margin={rowProjection.margin}
+                    data-basis={rowProjection.basis}
                   >
-                    {row.state.name}
-                  </Button>
-                  <p className="text-sm text-muted-foreground" data-testid={`governor-basis-${row.abbr}`}>
-                    {rowBlend ? "Polymarket and polls" : "Polymarket-only"}
-                  </p>
-                </div>
-                <ul className="flex min-w-0 flex-col justify-center gap-1 text-sm">
-                  {quoted.map((person) => (
-                    <li key={person.name} className="flex justify-between gap-3">
-                      <span className="min-w-0">
-                        {person.name}
-                        <span className="text-muted-foreground"> · {partyName(person.party)}</span>
-                      </span>
-                      <span className="shrink-0 tabular-nums">{formatChance(person.chance)}</span>
-                    </li>
-                  ))}
-                  <li className="text-muted-foreground" data-testid={`governor-margin-${row.abbr}`} data-margin={rowProjection.margin} data-basis={rowProjection.basis}>
-                    Projected margin {rowProjection.text}
-                    {rowProjection.basis === "generic" ? " · generic ballot, not a poll" : ""}
-                  </li>
-                </ul>
-              </article>
-            );
-          })}
+                    {rowProjection.text}
+                    {rowProjection.basis === "generic" ? " · estimate" : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
         {current && projection ? (
           <aside id="governor-dossier" className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5">
@@ -1510,7 +1532,7 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
             <ul className="flex flex-col gap-2">
               {people.map((person) => (
                 <li key={person.name} className="flex items-baseline justify-between gap-3 text-sm" data-testid={`governor-person-${current.abbr}-${person.party}`} data-chance={person.chance} data-polymarket={person.polymarket} data-poll={person.poll ?? ""}>
-                  <span>
+                  <span className="min-w-0">
                     {person.name}
                     <span className="text-muted-foreground"> · {partyName(person.party)}</span>
                     {blended ? (
@@ -1542,7 +1564,17 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
               Polymarket odds
             </a>
           </aside>
-        ) : null}
+        ) : (
+          <aside id="governor-dossier" className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5" data-testid="governor-no-race">
+            <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+              Selected state
+            </p>
+            <h3 className="font-heading text-4xl">{selectedState?.name ?? "District of Columbia"}</h3>
+            <p className="text-sm leading-6">
+              No governor election on November 3, 2026. This state is not colored as a race.
+            </p>
+          </aside>
+        )}
       </div>
     </section>
   );
@@ -1561,42 +1593,65 @@ function governorBlendNote(race: SenateRace, delta: number): string {
   return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. There is no matching 2026 polling average, so that price is not averaged with a poll and does not move with the generic-ballot shift. This race is Polymarket-only.`;
 }
 
-function HousePanel({ margins }: { margins: Record<string, number> }) {
+function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const shades: Record<string, DistrictShade> = {};
+  for (const item of DISTRICT_PATHS) {
+    const shade = districtShade(item.id, shiftFor(item.abbr));
+    if (shade) shades[item.id] = shade;
+  }
   const shape = selectedId ? districtById(selectedId) : undefined;
   const state = shape ? getState(shape.abbr) : undefined;
-  const margin = shape ? margins[shape.abbr] : undefined;
+  const shift = shape ? shiftFor(shape.abbr) : 0;
+  const generic = shape ? districtGeneric(shape.id, shift) : null;
+  const market = shape ? HOUSE_MARKETS[shape.id] : undefined;
+  const result = shape ? HOUSE_2024_DISTRICT[shape.id] : undefined;
+  const trump = shape ? PRES_2024[shape.id] : undefined;
+  const shade = shape ? shades[shape.id] : undefined;
+  const people = market ? houseChances(market, shift) : [];
+  const pollMargin = market ? housePollMargin(market, shift) : null;
+  const labels = new Map(market?.candidates.map((candidate) => [candidate.name, candidate.label]) ?? []);
   const newerNames = "Alabama, California, Florida, Louisiana, North Carolina, Ohio, Tennessee, Texas, and Utah";
 
   return (
-    <section className="flex flex-col gap-6" aria-labelledby="house-heading">
+    <section className="flex min-w-0 flex-col gap-6" aria-labelledby="house-heading">
       <div className="flex max-w-3xl flex-col gap-3">
         <h2 id="house-heading" className="font-heading text-3xl">
           House districts
         </h2>
         <p className="text-sm leading-7">
-          Every voting U.S. House district is outlined from its Census boundary. The shape is the
-          district, not a state blob and not a rectangle. The color is the parent state’s
-          generic-ballot estimate, the same estimate as the state map, including the national
-          slider and any adjustment on that state. It is not a district-level 2024 result and not
-          a 2026 candidate poll. At-large states are one district. The District of Columbia has no
-          voting House district and is not drawn.
+          Every voting U.S. House district is outlined from its Census boundary. Click a district
+          for the 2026 candidates, the generic-ballot estimate beside the projection, and the
+          2024 House and presidential margins. At-large states are one district. The District of
+          Columbia has no voting House district and is not drawn. Alaska and Hawaii are inset.
+        </p>
+        <p className="text-sm leading-7 text-muted-foreground">
+          The generic-ballot estimate starts from that district’s 2024 presidential margin, moves
+          {" "}{EVEN_SWING} points toward the Democrats, then adds the national slider and any
+          adjustment on the parent state. The projection is separate. Where Polymarket and a
+          two-candidate polling average both exist, the chance is half the Yes price and half
+          the polling share, scaled to about 100, and the projected margin is the polling margin
+          plus the generic-ballot shift. FiftyPlusOne’s public averages page does not publish a
+          2026 House district average, so these chances are the {HOUSE_POLYMARKET_AS_OF} Polymarket
+          snapshot alone. That price does not move, and it is not copied from the generic ballot.
+          A district with neither a market nor a poll says there is no market projection.
         </p>
         <p className="text-sm leading-7 text-muted-foreground">
           {newerNames} have enacted maps for 2026 that this Census file does not include. Those
-          states are still drawn with the Census outline. This page does not trace a replacement.
+          states are still drawn with the Census outline. On those districts, the 2024 margins
+          are for the district as it was contested in 2024, not the new map.
         </p>
       </div>
       <div className="grid min-w-0 items-start gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
         <div className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:p-5">
-          <HouseMap margins={margins} selected={selectedId} onSelect={setSelectedId} />
-          <label className="grid gap-1 text-sm">
+          <HouseMap shades={shades} selected={selectedId} onSelect={setSelectedId} />
+          <label className="grid min-w-0 gap-1 text-sm">
             <span className="text-muted-foreground">Jump to a district</span>
             <select
               value={selectedId ?? ""}
               onChange={(event) => setSelectedId(event.target.value || null)}
               aria-label="Jump to a House district"
-              className="h-11 rounded-lg border border-input bg-background px-3"
+              className="h-11 w-full min-w-0 rounded-lg border border-input bg-background px-3"
             >
               <option value="">Select a district</option>
               {DISTRICT_PATHS.map((item) => (
@@ -1611,22 +1666,158 @@ function HousePanel({ margins }: { margins: Record<string, number> }) {
           <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
             Selected district
           </p>
-          {shape && state && margin !== undefined ? (
-            <div data-testid="district-panel" data-district={shape.id} data-margin={margin}>
+          {shape && state ? (
+            <div data-testid="district-panel" data-district={shape.id}>
               <h3 className="font-heading text-4xl">{districtTitle(shape.abbr, shape.district)}</h3>
-              <p className="mt-3 text-sm leading-6">
-                <span className="font-medium">Margin used to color it: {formatMargin(margin)}.</span>
-              </p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Source: {state.name}’s generic-ballot estimate, the same number that colors the
-                state map. It starts from the 2024 presidential margin, moves {EVEN_SWING} points
-                toward the Democrats, then adds the national slider and any adjustment on this
-                state alone. It is not a 2024 district result and not a candidate poll.
-              </p>
+              <div className="mt-4">
+                <h4 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+                  2026 candidates
+                </h4>
+                {market ? (
+                  <ul className="mt-2 flex flex-col gap-1 text-sm">
+                    {market.candidates.map((candidate) => (
+                      <li key={candidate.name} data-testid="district-candidate">
+                        {candidate.name}
+                        <span className="text-muted-foreground"> · {candidate.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm leading-6">
+                    No candidate is named here. This snapshot has no Polymarket contract for the
+                    district, and a name is not filled in.
+                  </p>
+                )}
+                {market?.caveat ? (
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{market.caveat}</p>
+                ) : null}
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="min-w-0 rounded-lg border p-3" data-testid="district-generic" data-margin={generic ?? ""}>
+                  <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+                    Generic-ballot estimate
+                  </p>
+                  <p className="mt-1 font-heading text-3xl tabular-nums">
+                    {generic === null ? "—" : formatMargin(generic)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {trump === undefined
+                      ? "No 2024 presidential margin is stored for this outline. The old district’s number is not assigned to a new shape."
+                      : `Starts from the 2024 presidential margin ${formatMargin(-trump)}, then ${EVEN_SWING} points toward the Democrats, then the national slider and any adjustment on ${state.name}.`}
+                  </p>
+                </div>
+                <div
+                  className="min-w-0 rounded-lg border p-3"
+                  data-testid="district-projection"
+                  data-basis={pollMargin ? "poll" : market ? "polymarket" : "none"}
+                  data-margin={pollMargin ? pollMargin.margin : ""}
+                >
+                  <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+                    Projection
+                  </p>
+                  {market ? (
+                    <>
+                      <ul className="mt-2 flex flex-col gap-1 text-sm">
+                        {people.map((person) => (
+                          <li key={person.name} className="flex items-baseline justify-between gap-2" data-chance={person.chance} data-polymarket={person.polymarket}>
+                            <span className="min-w-0">
+                              {person.name}
+                              <span className="text-muted-foreground"> · {labels.get(person.name)}</span>
+                            </span>
+                            <span className="shrink-0 tabular-nums">{formatChance(person.chance)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {pollMargin ? (
+                        <p className="mt-2 text-sm leading-6">
+                          <span className="font-medium">Projected margin {pollMargin.text}.</span>{" "}
+                          <span className="text-muted-foreground">
+                            The polling margin plus this district’s generic-ballot shift of {shift > 0 ? "+" : ""}{shift.toFixed(1)}. Only the polling half of the chance moves. The Polymarket price stays the snapshot.
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          Polymarket only, {HOUSE_POLYMARKET_AS_OF}. There is no 2026 House polling
+                          average for this district, so the chance is the snapshot price. It does
+                          not move with the generic ballot, and it is not that estimate.
+                        </p>
+                      )}
+                      <a
+                        href={houseRace(market).polymarketUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid="district-polymarket"
+                        className="mt-2 inline-block text-sm underline underline-offset-4"
+                      >
+                        Polymarket odds
+                      </a>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm leading-6" data-testid="district-no-market">
+                      There is no market projection. This district has no Polymarket winner market
+                      in the {HOUSE_POLYMARKET_AS_OF} snapshot and no 2026 polling average. The
+                      generic-ballot estimate is not a forecast.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="mt-4 flex flex-col gap-2 text-sm leading-6">
+                <p data-testid="district-house-2024" data-margin={result?.marginD ?? ""}>
+                  <span className="font-medium">
+                    2024 House: {result ? (result.marginD === null ? "no Republican-versus-Democrat margin" : formatMargin(result.marginD)) : "not on file"}.
+                  </span>{" "}
+                  {result?.demPct !== null && result?.demPct !== undefined && result.repPct !== null
+                    ? `Democrats ${result.demPct.toFixed(1)}%, Republicans ${result.repPct.toFixed(1)}%. `
+                    : ""}
+                  {result?.note ? `${result.note} ` : ""}
+                  <a className="underline underline-offset-4" href={HOUSE_RESULT_SOURCE}>
+                    Clerk of the House
+                  </a>
+                  .
+                </p>
+                <p data-testid="district-trump-2024" data-margin={trump ?? ""}>
+                  <span className="font-medium">
+                    2024 presidential: {trump === undefined ? "no figure for this outline" : formatMargin(-trump)}.
+                  </span>{" "}
+                  {trump === undefined
+                    ? "There is no honest 2024 presidential margin for this district geography."
+                    : "How much Trump won the district as contested in 2024."}{" "}
+                  <a className="underline underline-offset-4" href={HOUSE_PRES_SOURCE}>
+                    The Downballot
+                  </a>
+                  , districts used in 2024
+                  {" "}(
+                  <a className="underline underline-offset-4" href={HOUSE_PRES_PAGE}>
+                    explainer
+                  </a>
+                  ).
+                </p>
+              </div>
+              {shade?.kind === "price" ? (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Map color {formatMargin(shade.margin)}.
+                  {market?.partyColor
+                    ? " The named contracts are not a Democrat against a Republican, so the color uses the separate party contracts. That price gap is not the generic-ballot estimate."
+                    : " That is the Democratic Polymarket price minus the Republican price after the prices are scaled to about 100. It is not the generic-ballot estimate and it does not move with the slider."}
+                </p>
+              ) : null}
+              {shade?.kind === "poll" ? (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Map color {formatMargin(shade.margin)}, the projected vote margin.
+                </p>
+              ) : null}
+              {shade?.kind === "generic" ? (
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  Map color {formatMargin(shade.margin)}, the generic-ballot estimate. This district
+                  has no Democratic-versus-Republican market price to color with.
+                </p>
+              ) : null}
               {isNewerThanCensus(shape.abbr) ? (
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {state.name} enacted a congressional map after the Census file’s May 31, 2024
-                  cutoff. This outline is the 119th Congress cartographic boundary, not that newer map.
+                <p className="mt-3 text-sm leading-6 text-muted-foreground" data-testid="district-redraw">
+                  {state.name} enacted a congressional map for 2026 that is newer than this Census
+                  outline. The outline may not match the 2026 district. The 2024 House margin and
+                  the 2024 presidential margin are for the district as it was contested in 2024,
+                  not for the new map.
                 </p>
               ) : null}
             </div>

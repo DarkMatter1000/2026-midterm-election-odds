@@ -9,47 +9,51 @@ import {
   type DistrictPath,
 } from "@/lib/district-paths";
 import { formatMargin, getState, marginFill, NEUTRAL_FILL } from "@/lib/election";
+import type { DistrictShade } from "@/lib/house-live";
 
 const NEWER = new Set<string>(NEWER_THAN_CENSUS);
 
 export function HouseMap({
-  margins,
+  shades,
   selected,
   onSelect,
 }: {
-  margins: Record<string, number>;
+  shades: Record<string, DistrictShade>;
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
   const [hover, setHover] = useState<string | null>(null);
   const captionId = hover ?? selected;
-  const caption = captionId ? districtCaption(captionId, margins) : "Select a district.";
+  const caption = captionId ? districtCaption(captionId, shades) : "Select a district.";
 
   return (
     <figure className="flex min-w-0 flex-col gap-3">
       <svg
         viewBox={`0 0 ${DISTRICT_MAP_VIEW.width} ${DISTRICT_MAP_VIEW.height}`}
         role="group"
-        aria-label="United States House districts, each outlined with its Census boundary and colored by that state’s generic-ballot estimate"
+        aria-label="United States House districts. A district with a Democratic and Republican Polymarket price is colored by that price gap. A district without one is colored by its generic-ballot estimate."
         className="h-auto w-full max-w-full"
       >
         {DISTRICT_PATHS.map((shape) => {
           const active = shape.id === selected;
-          const margin = margins[shape.abbr];
+          const shade = shades[shape.id];
           return (
             <path
               key={shape.id}
               d={shape.d}
               data-testid={`district-${shape.id}`}
+              data-basis={shade?.basis}
+              data-kind={shade?.kind}
+              data-margin={shade?.margin}
               className="state-shape cursor-pointer"
-              fill={margin === undefined ? NEUTRAL_FILL : marginFill(margin)}
+              fill={shade ? marginFill(shade.margin) : NEUTRAL_FILL}
               stroke={active ? "#1a1714" : "rgba(26,23,20,0.75)"}
               strokeWidth={active ? 2.5 : 0.85}
               vectorEffect="non-scaling-stroke"
               tabIndex={0}
               role="button"
               aria-pressed={active}
-              aria-label={districtCaption(shape.id, margins)}
+              aria-label={districtCaption(shape.id, shades)}
               onMouseEnter={() => setHover(shape.id)}
               onMouseLeave={() => setHover(null)}
               onFocus={() => setHover(shape.id)}
@@ -77,6 +81,13 @@ export function HouseMap({
         />
         <span>D+28</span>
       </div>
+      <p className="text-sm leading-6 text-muted-foreground" data-testid="house-legend">
+        Two different numbers share this scale. Where a market prices both a Democrat and a
+        Republican, the color is that Polymarket price gap, and it does not follow the generic
+        ballot. Where a polling average exists, the color is the projected vote margin. Every
+        other district is colored by its own generic-ballot estimate. A price gap is not that
+        estimate.
+      </p>
       <p className="text-sm leading-6 text-muted-foreground" data-testid="house-vintage">
         {DISTRICT_BOUNDARY_VINTAGE} Alaska and Hawaii are inset. The District of Columbia is not drawn.
       </p>
@@ -108,11 +119,17 @@ function ordinal(district: string): string {
   return `${n}${suffix}`;
 }
 
-function districtCaption(id: string, margins: Record<string, number>): string {
+function districtCaption(id: string, shades: Record<string, DistrictShade>): string {
   const shape = districtById(id);
   if (!shape) return id;
-  const margin = margins[shape.abbr];
+  const shade = shades[id];
   const title = districtTitle(shape.abbr, shape.district);
-  if (margin === undefined) return title;
-  return `${title}. Generic ballot estimate ${formatMargin(margin)}.`;
+  if (!shade) return title;
+  if (shade.kind === "generic") {
+    return `${title}. Generic-ballot estimate ${formatMargin(shade.margin)}.`;
+  }
+  if (shade.kind === "poll") {
+    return `${title}. Projected margin ${formatMargin(shade.margin)}.`;
+  }
+  return `${title}. Polymarket price gap ${formatMargin(shade.margin)}.`;
 }
