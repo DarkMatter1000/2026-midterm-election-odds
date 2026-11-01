@@ -178,9 +178,32 @@ export const TOSSUP_MAPS: TossupMap[] = [
   { label: "AK, IA", question: "Will Republicans win Alaska and Iowa, and lose Kansas, Maine, Michigan, Ohio, and Texas?", republican: ["AK", "IA"], price: 1.4 },
 ];
 
-const MAP_BY_KEY = new Map(
-  TOSSUP_MAPS.map((item) => [item.republican.join(","), item]),
-);
+/** Canonical key: tossup states in name order, abbreviations joined. Empty when Republicans win none. */
+export function tossupMapKey(republican: string[]): string {
+  const wanted = new Set(republican);
+  return TOSSUP_STATES.filter((state) => wanted.has(state.abbr))
+    .map((state) => state.abbr)
+    .join(",");
+}
+
+/** State names on one side of a map, or "None" when that side wins no tossup state. */
+export function tossupSideLabel(republican: string[], side: TossupSide): string {
+  const wanted = new Set(republican);
+  const names = TOSSUP_STATES.filter((state) =>
+    side === "R" ? wanted.has(state.abbr) : !wanted.has(state.abbr),
+  ).map((state) => state.name);
+  return names.length === 0 ? "None" : names.join(", ");
+}
+
+/** Alphabetical state names on the Republican side. Empty when they win none, so that map sorts first in a tie. */
+function republicanSortKey(republican: string[]): string {
+  const wanted = new Set(republican);
+  return TOSSUP_STATES.filter((state) => wanted.has(state.abbr))
+    .map((state) => state.name)
+    .join(", ");
+}
+
+const MAP_BY_KEY = new Map(TOSSUP_MAPS.map((item) => [tossupMapKey(item.republican), item]));
 
 export function tossupCall(state: TossupState): TossupSide {
   return state.republican >= 50 ? "R" : "D";
@@ -188,10 +211,33 @@ export function tossupCall(state: TossupState): TossupSide {
 
 /** The traded outcome for this exact set of Republican wins, if the payload has it. */
 export function exactTossupMap(republican: string[]): TossupMap | undefined {
-  const wanted = new Set(republican);
-  const key = TOSSUP_STATES.filter((state) => wanted.has(state.abbr)).map((state) => state.abbr).join(",");
-  return MAP_BY_KEY.get(key);
+  return MAP_BY_KEY.get(tossupMapKey(republican));
 }
+
+export type RankedTossupMap = TossupMap & {
+  rank: number;
+  key: string;
+  republicanLabel: string;
+  democratLabel: string;
+};
+
+/** Every traded map, highest chance first. Ties break on the Republican-win names, A to Z. */
+export const TOSSUP_MAP_ROWS: RankedTossupMap[] = [...TOSSUP_MAPS]
+  .sort((a, b) => {
+    if (a.price !== b.price) return b.price - a.price;
+    const left = republicanSortKey(a.republican);
+    const right = republicanSortKey(b.republican);
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  })
+  .map((item, index) => ({
+    ...item,
+    rank: index + 1,
+    key: tossupMapKey(item.republican),
+    republicanLabel: tossupSideLabel(item.republican, "R"),
+    democratLabel: tossupSideLabel(item.republican, "D"),
+  }));
 
 /**
  * Product of prices that are already in 100, returned in 100 to one decimal.

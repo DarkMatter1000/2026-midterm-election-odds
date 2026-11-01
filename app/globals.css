@@ -191,3 +191,12 @@
   background: #f6efd4;
   border-color: #8a6a1f;
 }
+
+.tossup-map-selected th,
+.tossup-map-selected td {
+  background: #efe4c4;
+}
+
+.tossup-map-selected > :first-child {
+  box-shadow: inset 3px 0 0 #1a1714;
+}

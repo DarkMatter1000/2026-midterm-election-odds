@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Search } from "lucide-react";
 import { GovernorMap } from "@/components/governor-map";
 import { HouseMap, districtById, districtTitle, isNewerThanCensus } from "@/components/house-map";
@@ -81,10 +81,12 @@ import {
 import {
   TOSSUP_AS_OF,
   TOSSUP_EVENT,
+  TOSSUP_MAP_ROWS,
   TOSSUP_STATES,
   exactTossupMap,
   productIn100,
   tossupCall,
+  tossupMapKey,
   type TossupSide,
 } from "@/lib/tossup-live";
 
@@ -1834,6 +1836,7 @@ function TossupDetector({
     selected.length === 1
       ? `${matches} of 1 pick matches the market’s call.`
       : `${matches} of ${selected.length} picks match the market’s call.`;
+  const selectedKey = allPicked && exact ? tossupMapKey(exact.republican) : null;
 
   return (
     <section className="flex min-w-0 flex-col gap-4" aria-labelledby="tossup-heading" data-testid="tossup-detector">
@@ -1938,7 +1941,32 @@ function TossupDetector({
           )}
         </div>
       ) : null}
-      <p className="max-w-3xl text-sm leading-6">
+      <TossupMapTable selectedKey={selectedKey} />
+    </section>
+  );
+}
+
+function TossupMapTable({ selectedKey }: { selectedKey: string | null }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selectedKey) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const row = scroller.querySelector<HTMLElement>('[data-selected="true"]');
+    if (!row) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rowTop = row.getBoundingClientRect().top;
+    const boxTop = scroller.getBoundingClientRect().top;
+    const next =
+      scroller.scrollTop + (rowTop - boxTop) - (scroller.clientHeight - row.offsetHeight) / 2;
+    scroller.scrollTo({ top: Math.max(0, next), behavior: reduce ? "auto" : "smooth" });
+  }, [selectedKey]);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <p id="tossup-map-caption" className="text-sm leading-6" data-testid="tossup-map-caption">
+        {TOSSUP_MAP_ROWS.length} maps, sorted from most likely to least. Snapshot {TOSSUP_AS_OF}.{" "}
         <a
           href={TOSSUP_EVENT.url}
           target="_blank"
@@ -1948,9 +1976,68 @@ function TossupDetector({
         >
           Polymarket, which tossup Senate states Republicans win
         </a>
-        . Prices are the {TOSSUP_AS_OF} snapshot.
+        .
       </p>
-    </section>
+      <div
+        ref={scrollerRef}
+        className="max-h-[420px] min-w-0 overflow-auto rounded-xl border bg-card"
+        data-testid="tossup-map-scroller"
+      >
+        <table
+          className="w-full table-fixed border-separate border-spacing-0 text-left text-sm"
+          data-testid="tossup-map-table"
+          aria-describedby="tossup-map-caption"
+        >
+          <colgroup>
+            <col className="w-11" />
+            <col className="w-[6.25rem]" />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr className="text-xs tracking-wide text-muted-foreground uppercase">
+              <th scope="col" className="sticky top-0 border-b bg-card px-2 py-2 text-left font-medium">
+                Rank
+              </th>
+              <th scope="col" className="sticky top-0 border-b bg-card px-2 py-2 text-left font-medium">
+                Odds
+              </th>
+              <th scope="col" className="sticky top-0 border-b bg-card px-2 py-2 text-left font-medium">
+                Republicans win
+              </th>
+              <th scope="col" className="sticky top-0 border-b bg-card px-2 py-2 text-left font-medium">
+                Democrats win
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {TOSSUP_MAP_ROWS.map((row) => {
+              const selected = selectedKey !== null && row.key === selectedKey;
+              return (
+                <tr
+                  key={row.key || "none"}
+                  className={selected ? "tossup-map-selected" : undefined}
+                  data-testid="tossup-map-row"
+                  data-rank={row.rank}
+                  data-price={row.price}
+                  data-key={row.key}
+                  data-selected={selected ? "true" : "false"}
+                  aria-current={selected ? "true" : undefined}
+                >
+                  <td className="border-b px-2 py-2 align-top tabular-nums">{row.rank}</td>
+                  <td className="border-b px-2 py-2 align-top leading-5 tabular-nums">{formatOdds(row.price)}</td>
+                  <th scope="row" className="border-b px-2 py-2 text-left align-top leading-5 font-medium break-words">
+                    {selected ? <span className="mb-0.5 block text-xs font-medium tracking-normal normal-case">Your map</span> : null}
+                    {row.republicanLabel}
+                  </th>
+                  <td className="border-b px-2 py-2 align-top leading-5 break-words">{row.democratLabel}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
