@@ -1,7 +1,7 @@
 // Snapshot for the November 3, 2026 midterms.
 // Generic-ballot averages: Wikipedia's compilation of five public aggregators,
 // updated October 30, 2026.
-// Senate chances: lib/senate-live.ts, Polymarket at 4:10 p.m. CT on October 31, 2026,
+// Senate chances: lib/senate-live.ts, live Polymarket Yes prices when Gamma answers,
 // averaged with FiftyPlusOne and Electoral-Vote.com where both name the same candidates.
 // 2024 presidential margins: certified totals compiled by Wikipedia from the
 // Federal Election Commission report.

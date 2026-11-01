@@ -81,10 +81,14 @@ export type DistrictShade = {
   kind: "poll" | "price" | "generic";
 };
 
-export function districtShade(id: string, shift: number): DistrictShade | null {
+export function districtShade(
+  id: string,
+  shift: number,
+  markets: Record<string, HouseMarket> = HOUSE_MARKETS,
+): DistrictShade | null {
   const generic = districtGeneric(id, shift);
   if (generic === null) return null;
-  const market = HOUSE_MARKETS[id];
+  const market = markets[id];
   if (!market) return { margin: generic, basis: "generic", kind: "generic" };
   const base = pollMarginPoints(houseRace(market));
   if (base !== null) {

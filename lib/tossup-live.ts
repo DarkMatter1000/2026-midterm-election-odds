@@ -211,7 +211,13 @@ export function tossupCall(state: TossupState): TossupSide {
 
 /** The traded outcome for this exact set of Republican wins, if the payload has it. */
 export function exactTossupMap(republican: string[]): TossupMap | undefined {
-  return MAP_BY_KEY.get(tossupMapKey(republican));
+  return exactTossupMapFrom(TOSSUP_MAPS, republican);
+}
+
+export function exactTossupMapFrom(maps: TossupMap[], republican: string[]): TossupMap | undefined {
+  const key = tossupMapKey(republican);
+  if (maps === TOSSUP_MAPS) return MAP_BY_KEY.get(key);
+  return maps.find((item) => tossupMapKey(item.republican) === key);
 }
 
 export type RankedTossupMap = TossupMap & {
@@ -222,22 +228,43 @@ export type RankedTossupMap = TossupMap & {
 };
 
 /** Every traded map, highest chance first. Ties break on the Republican-win names, A to Z. */
-export const TOSSUP_MAP_ROWS: RankedTossupMap[] = [...TOSSUP_MAPS]
-  .sort((a, b) => {
-    if (a.price !== b.price) return b.price - a.price;
-    const left = republicanSortKey(a.republican);
-    const right = republicanSortKey(b.republican);
-    if (left < right) return -1;
-    if (left > right) return 1;
-    return 0;
-  })
-  .map((item, index) => ({
-    ...item,
-    rank: index + 1,
-    key: tossupMapKey(item.republican),
-    republicanLabel: tossupSideLabel(item.republican, "R"),
-    democratLabel: tossupSideLabel(item.republican, "D"),
-  }));
+export function rankTossupMaps(maps: TossupMap[]): RankedTossupMap[] {
+  return [...maps]
+    .sort((a, b) => {
+      if (a.price !== b.price) return b.price - a.price;
+      const left = republicanSortKey(a.republican);
+      const right = republicanSortKey(b.republican);
+      if (left < right) return -1;
+      if (left > right) return 1;
+      return 0;
+    })
+    .map((item, index) => ({
+      ...item,
+      rank: index + 1,
+      key: tossupMapKey(item.republican),
+      republicanLabel: tossupSideLabel(item.republican, "R"),
+      democratLabel: tossupSideLabel(item.republican, "D"),
+    }));
+}
+
+export const TOSSUP_MAP_ROWS: RankedTossupMap[] = rankTossupMaps(TOSSUP_MAPS);
+
+/** Republicans-win / Democrats-win sums from the maps, one decimal. */
+export function tossupStatesFromMaps(maps: TossupMap[]): TossupState[] {
+  return TOSSUP_STATES.map((state) => {
+    let republican = 0;
+    let democrat = 0;
+    for (const map of maps) {
+      if (map.republican.includes(state.abbr)) republican += map.price;
+      else democrat += map.price;
+    }
+    return {
+      ...state,
+      republican: Math.round(republican * 10) / 10,
+      democrat: Math.round(democrat * 10) / 10,
+    };
+  });
+}
 
 /**
  * Product of prices that are already in 100, returned in 100 to one decimal.

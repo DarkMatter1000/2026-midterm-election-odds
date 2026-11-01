@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Search } from "lucide-react";
+import { LiveOddsProvider, liveOddsCopy, useLiveOdds, useLiveOddsSource } from "@/lib/live-odds";
+import { withLiveSenate } from "@/lib/polymarket";
 import { GovernorMap } from "@/components/governor-map";
 import { HouseMap, districtById, districtTitle, isNewerThanCensus } from "@/components/house-map";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -16,7 +18,6 @@ import {
   GENERIC_POLLS,
   NATIONAL_GENERIC,
   PRESIDENTIAL_2024_MARGIN_D,
-  SENATE_RACES,
   STATES,
   comparisonCopy,
   daysUntilElection,
@@ -34,12 +35,11 @@ import {
 } from "@/lib/election";
 import { HOUSE_2022, HOUSE_2022_FEC } from "@/lib/house-2022";
 import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
-import { GOVERNOR_POLYMARKET_AS_OF, GOVERNORS, governorProjection } from "@/lib/governor-live";
-import { GOVERNOR_MARGINS, MARGIN_AS_OF, SENATE_MARGINS, type MarginEvent } from "@/lib/margin-live";
+import { GOVERNOR_POLYMARKET_AS_OF, governorProjection } from "@/lib/governor-live";
+import { MARGIN_AS_OF, type MarginEvent } from "@/lib/margin-live";
 import { sortMarginBrackets, type MarginSort } from "@/lib/margin-sort";
 import {
   HOUSE_2024_DISTRICT,
-  HOUSE_MARKETS,
   HOUSE_POLYMARKET_AS_OF,
   HOUSE_PRES_PAGE,
   HOUSE_PRES_SOURCE,
@@ -65,10 +65,7 @@ import {
   type VoteHubRating,
 } from "@/lib/votehub";
 import {
-  HOUSE_CONTROL,
   POLYMARKET_AS_OF,
-  SENATE,
-  SENATE_CONTROL,
   averageShares,
   blendsPolls,
   closeness,
@@ -84,9 +81,7 @@ import {
 import {
   TOSSUP_AS_OF,
   TOSSUP_EVENT,
-  TOSSUP_MAP_ROWS,
-  TOSSUP_STATES,
-  exactTossupMap,
+  exactTossupMapFrom,
   productIn100,
   tossupCall,
   tossupMapKey,
@@ -117,6 +112,16 @@ function deltaLabel(delta: number): string {
 }
 
 export function Briefing() {
+  const live = useLiveOddsSource();
+  return (
+    <LiveOddsProvider value={live}>
+      <BriefingBody />
+    </LiveOddsProvider>
+  );
+}
+
+function BriefingBody() {
+  const live = useLiveOdds();
   const [query, setQuery] = useState("");
   const [slider, setSlider] = useState(NATIONAL_GENERIC.marginD);
   const [custom, setCustom] = useState<Record<string, number>>({});
@@ -205,11 +210,13 @@ export function Briefing() {
   const anyCustom = ballots.some((ballot) => ballot.customDelta !== 0);
   const anyTurnoutAdjust = ballots.some((ballot) => ballot.turnoutAdjust !== 0);
 
-  const races = [...SENATE_RACES].sort(
-    (a, b) => closeness(a.senate!, shiftFor(a.abbr)) - closeness(b.senate!, shiftFor(b.abbr)),
-  );
+  const races = STATES.filter((item) => item.senate)
+    .map((item) => withLiveSenate(item, live.senate))
+    .sort((a, b) => closeness(a.senate!, shiftFor(a.abbr)) - closeness(b.senate!, shiftFor(b.abbr)));
   const selected = useSyncExternalStore(subscribeToHash, readHash, () => "KS");
   const days = useSyncExternalStore(subscribeToNothing, () => daysUntilElection(), () => UNKNOWN_DAYS);
+  const snapshotState = selected === "DC" ? undefined : getState(selected);
+  const state = snapshotState ? withLiveSenate(snapshotState, live.senate) : snapshotState;
 
   function select(abbr: string) {
     const url = new URL(window.location.href);
@@ -225,8 +232,7 @@ export function Briefing() {
     }
   }
 
-  const filtered = races.filter((state) => matchesQuery(state, query));
-  const state = selected === "DC" ? undefined : getState(selected);
+  const filtered = races.filter((item) => matchesQuery(item, query));
 
   return (
     <div className="min-h-full w-full min-w-0">
@@ -244,12 +250,10 @@ export function Briefing() {
               Before Tuesday
             </h1>
           </div>
-          <p className="max-w-sm text-sm leading-6 text-muted-foreground sm:text-right">
-            {countdown(days)}
-            <span className="mt-1 block">
-              Polymarket prices are the {POLYMARKET_AS_OF} snapshot. They do not update on their own.
-            </span>
-          </p>
+          <div className="max-w-sm text-sm leading-6 text-muted-foreground sm:text-right">
+            <p>{countdown(days)}</p>
+            <LiveOddsHeader />
+          </div>
         </div>
         <p className="max-w-3xl text-lg leading-8">
           The generic congressional ballot in every state, Senate and governor chances that split
@@ -338,7 +342,7 @@ export function Briefing() {
               House district generic-ballot estimate, on every Senate polling margin, and on every
               governor polling margin. Where a House race has a polling average, that projected
               margin moves by the same point, and only the polling half of the chance moves. A
-              Polymarket-only price stays the snapshot. A per-state slider, at most 20 points either way, is applied after
+              Polymarket-only price follows the live Yes price. A per-state slider, at most 20 points either way, is applied after
               that, and only to that state. Turnout does not move those chances or margins. The
               range runs from even to D+16.0. Refresh the page
               to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state slider, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
@@ -348,10 +352,10 @@ export function Briefing() {
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Senate control
             </h2>
-            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(SENATE_CONTROL.dem)}</p>
+            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(live.senateControl.dem)}</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Polymarket’s price that Democrats win the chamber. Republicans {formatChance(SENATE_CONTROL.rep)}.{" "}
-              <a className="underline underline-offset-4" href={SENATE_CONTROL.url}>
+              Polymarket’s price that Democrats win the chamber. Republicans {formatChance(live.senateControl.rep)}.{" "}
+              <a className="underline underline-offset-4" href={live.senateControl.url}>
                 Market
               </a>
               .
@@ -361,10 +365,10 @@ export function Briefing() {
             <h2 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               House control
             </h2>
-            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(HOUSE_CONTROL.dem)}</p>
+            <p className="mt-3 font-heading text-4xl tabular-nums">{formatChance(live.houseControl.dem)}</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Polymarket’s price that Democrats win the House. Republicans {formatChance(HOUSE_CONTROL.rep)}.{" "}
-              <a className="underline underline-offset-4" href={HOUSE_CONTROL.url}>
+              Polymarket’s price that Democrats win the House. Republicans {formatChance(live.houseControl.rep)}.{" "}
+              <a className="underline underline-offset-4" href={live.houseControl.url}>
                 Market
               </a>
               .
@@ -630,13 +634,13 @@ export function Briefing() {
           </p>
           <p>
             Each Senate chance is half Polymarket and half the polls, when the same two
-            candidates appear in both. Polymarket contributes its Yes price, and that price
-            stays the October 31 snapshot. Each polling aggregator contributes that candidate’s
+            candidates appear in both. Polymarket contributes its live Yes price from Gamma.
+            Polls stay the October 31 snapshot. Each polling aggregator contributes that candidate’s
             share of the two-candidate average, leaving undecided voters out. Those aggregator
             shares are averaged first. The slider then moves only that polling half: a delta
             of +1.0 adds 0.5 points of two-party share to the Democrat, or to the independent
             challenger where there is no Democrat, and subtracts 0.5 from the Republican.
-            That shifted poll share is split evenly with the unchanged Polymarket price, then
+            That shifted poll share is split evenly with the live Polymarket price, then
             the chances are scaled so they still sum to about 100. A candidate at 60 in 100
             still loses about two times in five.
           </p>
@@ -676,7 +680,7 @@ export function Briefing() {
           </p>
           <p>
             The margin-of-victory list on a Senate or governor race is Polymarket’s own
-            brackets, from the {MARGIN_AS_OF} snapshot. Each market opens from the Democratic
+            brackets, refreshed from Gamma with the winner markets. Each market opens from the Democratic
             outcome to the Republican outcome: the Democrat’s wider margin first, then that
             candidate’s narrower margin, then the Republican’s narrower margin, then the wider
             Republican win. Odds reorders that same list by price, highest chance first, and
@@ -684,8 +688,8 @@ export function Briefing() {
             and a final-round market, and each market has its own sort. Refresh puts every
             market back on Democrat to Republican. The generic-ballot slider does not move
             those prices. A race with no such market says so. House districts do not get that
-            list. The detector at the bottom of this tab uses a separate snapshot of the same
-            hour, {TOSSUP_AS_OF}, and your picks there are cleared only by a refresh.
+            list. The detector at the bottom of this tab uses the same live tossup-map event,
+            and your picks there are cleared only by a refresh.
           </p>
           <p>
             Governor races are on their own tab and use this same split, for the states that
@@ -703,14 +707,14 @@ export function Briefing() {
               </a>
             </li>
             <li>
-              <a className="underline underline-offset-4" href={SENATE_CONTROL.url}>
+              <a className="underline underline-offset-4" href={live.senateControl.url}>
                 Polymarket, which party will win the Senate
               </a>
               {" "}and{" "}
-              <a className="underline underline-offset-4" href={HOUSE_CONTROL.url}>
+              <a className="underline underline-offset-4" href={live.houseControl.url}>
                 which party will win the House
               </a>
-              , {POLYMARKET_AS_OF}
+              , live from Polymarket when the Gamma fetch succeeds
             </li>
             <li>
               <a className="underline underline-offset-4" href="https://fiftyplusone.news/averages">
@@ -792,8 +796,42 @@ function countdown(days: number): string {
   if (days > 1) return `${days} days until Election Day, Tuesday, November 3.`;
   if (days === 1) return "Tomorrow is Election Day, Tuesday, November 3.";
   if (days === 0) return "Today is Election Day.";
-  if (days === -1) return "Election Day was yesterday. This page is still the October 31 snapshot, not a results page.";
-  return `Election Day was ${Math.abs(days)} days ago. This page is still the October 31 snapshot, not a results page.`;
+  if (days === -1) return "Election Day was yesterday. This page is not a results page. Polls and VoteHub stay the October 31 snapshot.";
+  return `Election Day was ${Math.abs(days)} days ago. This page is not a results page. Polls and VoteHub stay the October 31 snapshot.`;
+}
+
+function LiveOddsHeader() {
+  const live = useLiveOdds();
+  return (
+    <div className="mt-1 flex min-w-0 flex-col items-start gap-2 sm:items-end" data-testid="polymarket-live-status" data-status={live.status}>
+      <p data-testid="polymarket-live-time">
+        {liveOddsCopy(live.status, live.chicago, POLYMARKET_AS_OF)}
+        {live.status === "live" ? " Polls and VoteHub stay snapshots." : ""}
+      </p>
+      <button
+        type="button"
+        data-testid="polymarket-refresh"
+        className="h-11 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-muted"
+        onClick={live.refresh}
+        disabled={live.refreshing}
+      >
+        {live.refreshing ? "Refreshing prices" : "Refresh prices"}
+      </button>
+    </div>
+  );
+}
+
+function PolymarketAsOf({ snapshot, testId }: { snapshot: string; testId?: string }) {
+  const live = useLiveOdds();
+  return (
+    <p
+      className="text-xs leading-5 text-muted-foreground"
+      data-testid={testId ?? "polymarket-as-of"}
+      data-status={live.status}
+    >
+      {liveOddsCopy(live.status, live.chicago, snapshot)}
+    </p>
+  );
 }
 
 function StateGenericControl({
@@ -1414,6 +1452,7 @@ function StateDossier({
       <Demographics poll={exitPoll} stateName={state.name} />
       {state.senate ? <PollTable race={state.senate} /> : null}
       {state.senate ? <ChanceBlock race={state.senate} state={state} delta={delta} /> : null}
+      {state.senate ? <PolymarketAsOf snapshot={POLYMARKET_AS_OF} testId="senate-odds-as-of" /> : null}
       {state.senate?.caveat ? (
         <p className="text-sm leading-6 text-muted-foreground">{state.senate.caveat}</p>
       ) : null}
@@ -1603,7 +1642,13 @@ function ChanceBlock({ race, state, delta }: { race: SenateRace; state: StateRec
       {projection ? <ProjectionLine race={race} projection={projection} base={base} delta={delta} /> : null}
       <ul className="flex flex-col gap-2">
         {people.map((person) => (
-          <li key={person.name} className="flex items-baseline justify-between gap-3 text-sm">
+          <li
+            key={person.name}
+            className="flex items-baseline justify-between gap-3 text-sm"
+            data-testid={`senate-person-${person.party}`}
+            data-chance={person.chance}
+            data-polymarket={person.polymarket}
+          >
             <span>
               <span
                 className="mr-2 inline-block size-2 rounded-full"
@@ -1722,8 +1767,9 @@ function RaceRow({
 }
 
 function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
+  const live = useLiveOdds();
   const [selected, setSelected] = useState("TX");
-  const rows = Object.entries(GOVERNORS)
+  const rows = Object.entries(live.governors)
     .flatMap(([abbr, race]) => {
       const state = getState(abbr);
       return state ? [{ abbr, race, state }] : [];
@@ -1756,12 +1802,12 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
           gray. Alaska and Hawaii are on the map.
         </p>
         <p className="text-sm leading-7 text-muted-foreground">
-          Prices are the {GOVERNOR_POLYMARKET_AS_OF} Gamma API snapshot. They do not update on
-          their own. Where FiftyPlusOne publishes a 2026 average for the same two candidates, the
+          Winner prices refresh from Polymarket’s Gamma API. Polls stay the October 31 snapshot.
+          Where FiftyPlusOne publishes a 2026 average for the same two candidates, the
           chance is half that candidate’s share of the two-candidate average and half the
           Polymarket Yes price, then scaled so the quoted chances sum to about 100. A
           generic-ballot move of +1.0 adds 1.0 point to a polled projected margin and 0.5 points
-          of two-party share on the polling half only. The Polymarket price stays put. A
+          of two-party share on the polling half only. The Polymarket price is the live Yes price. A
           per-state generic adjustment moves only that state. Turnout does not move these chances
           or margins. Electoral-Vote.com does not publish a 2026 governor polling average, so it
           is not blended in. A race with no FiftyPlusOne average is Polymarket-only, and the
@@ -1846,6 +1892,7 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
               ))}
             </ul>
             <PollTable race={current.race} office="governor" />
+            <PolymarketAsOf snapshot={GOVERNOR_POLYMARKET_AS_OF} testId="governor-odds-as-of" />
             {current.race.caveat ? (
               <p className="text-sm leading-6 text-muted-foreground">{current.race.caveat}</p>
             ) : null}
@@ -1972,8 +2019,9 @@ function MarginMarket({
 }
 
 function MarginSection({ abbr, office }: { abbr: string; office: "senate" | "governor" }) {
-  const events = (office === "senate" ? SENATE_MARGINS : GOVERNOR_MARGINS)[abbr];
-  const race = office === "senate" ? SENATE[abbr] : GOVERNORS[abbr];
+  const live = useLiveOdds();
+  const events = (office === "senate" ? live.senateMargins : live.governorMargins)[abbr];
+  const race = office === "senate" ? live.senate[abbr] : live.governors[abbr];
   const candidates = race?.candidates ?? [];
 
   return (
@@ -1995,7 +2043,7 @@ function MarginSection({ abbr, office }: { abbr: string; office: "senate" | "gov
             <MarginMarket key={event.slug} event={event} candidates={candidates} />
           ))}
           <p className="text-xs leading-5 text-muted-foreground" data-testid="margin-as-of">
-            Polymarket outcome prices, {MARGIN_AS_OF} snapshot. Sorting does not change them, and they do not move with the generic ballot.
+            {liveOddsCopy(live.status, live.chicago, MARGIN_AS_OF)} Sorting does not change them, and they do not move with the generic ballot.
           </p>
         </>
       )}
@@ -2010,11 +2058,16 @@ function TossupDetector({
   picks: Record<string, TossupSide>;
   onPick: (abbr: string, side: TossupSide) => void;
 }) {
-  const selected = TOSSUP_STATES.filter((state) => picks[state.abbr] === "R" || picks[state.abbr] === "D");
+  const live = useLiveOdds();
+  const states = live.tossup.states;
+  const selected = states.filter((state) => picks[state.abbr] === "R" || picks[state.abbr] === "D");
   const matches = selected.filter((state) => picks[state.abbr] === tossupCall(state)).length;
-  const allPicked = selected.length === TOSSUP_STATES.length;
+  const allPicked = selected.length === states.length;
   const exact = allPicked
-    ? exactTossupMap(TOSSUP_STATES.filter((state) => picks[state.abbr] === "R").map((state) => state.abbr))
+    ? exactTossupMapFrom(
+        live.tossup.maps,
+        states.filter((state) => picks[state.abbr] === "R").map((state) => state.abbr),
+      )
     : undefined;
   const product = productIn100(
     selected.map((state) => (picks[state.abbr] === "R" ? state.republican : state.democrat)),
@@ -2042,12 +2095,13 @@ function TossupDetector({
           contract for each state. The Republicans-win price is the sum of the Yes prices on the
           maps where Republicans win that state. The Democrat price is the sum on the maps where
           they do not. Those Yes prices add up to a little more than 100, so the two sides of one
-          state do not add to 100. Snapshot {TOSSUP_AS_OF}. The generic-ballot slider does not
-          move these prices or your picks. Refreshing the page clears the picks.
+          state do not add to 100. {liveOddsCopy(live.status, live.chicago, TOSSUP_AS_OF)} The
+          generic-ballot slider does not move these prices or your picks. Refreshing the page
+          clears the picks.
         </p>
       </div>
       <div className="flex min-w-0 flex-col gap-3">
-        {TOSSUP_STATES.map((state) => {
+        {states.map((state) => {
           const pick = picks[state.abbr];
           const call = tossupCall(state);
           const agreement = pick ? (pick === call ? "agree" : "against") : "none";
@@ -2129,11 +2183,14 @@ function TossupDetector({
         </div>
       ) : null}
       <TossupMapTable selectedKey={selectedKey} />
+      <PolymarketAsOf snapshot={TOSSUP_AS_OF} testId="tossup-odds-as-of" />
     </section>
   );
 }
 
 function TossupMapTable({ selectedKey }: { selectedKey: string | null }) {
+  const live = useLiveOdds();
+  const rows = live.tossup.rows;
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2153,7 +2210,7 @@ function TossupMapTable({ selectedKey }: { selectedKey: string | null }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <p id="tossup-map-caption" className="text-sm leading-6" data-testid="tossup-map-caption">
-        {TOSSUP_MAP_ROWS.length} maps, sorted from most likely to least. Snapshot {TOSSUP_AS_OF}.{" "}
+        {rows.length} maps, sorted from most likely to least. {liveOddsCopy(live.status, live.chicago, TOSSUP_AS_OF)}{" "}
         <a
           href={TOSSUP_EVENT.url}
           target="_blank"
@@ -2198,7 +2255,7 @@ function TossupMapTable({ selectedKey }: { selectedKey: string | null }) {
             </tr>
           </thead>
           <tbody>
-            {TOSSUP_MAP_ROWS.map((row) => {
+            {rows.map((row) => {
               const selected = selectedKey !== null && row.key === selectedKey;
               return (
                 <tr
@@ -2234,25 +2291,26 @@ function governorBlendNote(race: SenateRace, delta: number): string {
   if (blendsPolls(race) && leader.poll !== null) {
     const shift =
       delta === 0
-        ? " The Polymarket price is the snapshot and does not move."
-        : ` The polling half includes the generic-ballot shift of ${delta > 0 ? "+" : ""}${delta.toFixed(1)}. The Polymarket price stays the snapshot.`;
+        ? " The Polymarket half is the live Yes price."
+        : ` The polling half includes the generic-ballot shift of ${delta > 0 ? "+" : ""}${delta.toFixed(1)}. The Polymarket half is the live Yes price.`;
     return `${leader.name} is ${formatChance(leader.chance)} after splitting the Polymarket price, ${formatChance(leader.polymarket)}, with that candidate’s share of the two-candidate polling average, ${formatChance(leader.poll)}.${shift}`;
   }
   return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. There is no matching 2026 polling average, so that price is not averaged with a poll and does not move with the generic-ballot shift. This race is Polymarket-only.`;
 }
 
 function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
+  const live = useLiveOdds();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const shades: Record<string, DistrictShade> = {};
   for (const item of DISTRICT_PATHS) {
-    const shade = districtShade(item.id, shiftFor(item.abbr));
+    const shade = districtShade(item.id, shiftFor(item.abbr), live.house);
     if (shade) shades[item.id] = shade;
   }
   const shape = selectedId ? districtById(selectedId) : undefined;
   const state = shape ? getState(shape.abbr) : undefined;
   const shift = shape ? shiftFor(shape.abbr) : 0;
   const generic = shape ? districtGeneric(shape.id, shift) : null;
-  const market = shape ? HOUSE_MARKETS[shape.id] : undefined;
+  const market = shape ? live.house[shape.id] : undefined;
   const result = shape ? HOUSE_2024_DISTRICT[shape.id] : undefined;
   const trump = shape ? PRES_2024[shape.id] : undefined;
   const shade = shape ? shades[shape.id] : undefined;
@@ -2280,8 +2338,8 @@ function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
           two-candidate polling average both exist, the chance is half the Yes price and half
           the polling share, scaled to about 100, and the projected margin is the polling margin
           plus the generic-ballot shift. FiftyPlusOne’s public averages page does not publish a
-          2026 House district average, so these chances are the {HOUSE_POLYMARKET_AS_OF} Polymarket
-          snapshot alone. That price does not move, and it is not copied from the generic ballot.
+          2026 House district average, so these chances are the live Polymarket Yes price
+          alone. That price is not copied from the generic ballot.
           A district with neither a market nor a poll says there is no market projection.
         </p>
         <p className="text-sm leading-7 text-muted-foreground">
@@ -2380,14 +2438,14 @@ function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
                         <p className="mt-2 text-sm leading-6">
                           <span className="font-medium">Projected margin {pollMargin.text}.</span>{" "}
                           <span className="text-muted-foreground">
-                            The polling margin plus this district’s generic-ballot shift of {shift > 0 ? "+" : ""}{shift.toFixed(1)}. Only the polling half of the chance moves. The Polymarket price stays the snapshot.
+                            The polling margin plus this district’s generic-ballot shift of {shift > 0 ? "+" : ""}{shift.toFixed(1)}. Only the polling half of the chance moves. The Polymarket price is the live Yes price.
                           </span>
                         </p>
                       ) : (
                         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                          Polymarket only, {HOUSE_POLYMARKET_AS_OF}. There is no 2026 House polling
-                          average for this district, so the chance is the snapshot price. It does
-                          not move with the generic ballot, and it is not that estimate.
+                          Polymarket only. There is no 2026 House polling average for this
+                          district, so the chance is the live Yes price. It does not move with
+                          the generic ballot, and it is not that estimate.
                         </p>
                       )}
                       <a
@@ -2399,12 +2457,15 @@ function HousePanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
                       >
                         Polymarket odds
                       </a>
+                      <div className="mt-2">
+                        <PolymarketAsOf snapshot={HOUSE_POLYMARKET_AS_OF} testId="house-odds-as-of" />
+                      </div>
                     </>
                   ) : (
                     <p className="mt-2 text-sm leading-6" data-testid="district-no-market">
                       There is no market projection. This district has no Polymarket winner market
-                      in the {HOUSE_POLYMARKET_AS_OF} snapshot and no 2026 polling average. The
-                      generic-ballot estimate is not a forecast.
+                      in the stored contracts and no 2026 polling average. The generic-ballot
+                      estimate is not a forecast.
                     </p>
                   )}
                 </div>
