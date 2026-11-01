@@ -2,7 +2,9 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { Search } from "lucide-react";
+import { HouseMap, districtById, districtTitle, isNewerThanCensus } from "@/components/house-map";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 import { MarginTrack } from "@/components/margin-track";
@@ -31,7 +33,9 @@ import {
 } from "@/lib/election";
 import { HOUSE_2022, HOUSE_2022_FEC } from "@/lib/house-2022";
 import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
+import { GOVERNOR_POLYMARKET_AS_OF, GOVERNORS, governorProjection } from "@/lib/governor-live";
 import { HOUSE_2024 } from "@/lib/house-2024";
+import { DISTRICT_PATHS } from "@/lib/district-paths";
 import {
   HOUSE_CONTROL,
   POLYMARKET_AS_OF,
@@ -73,6 +77,7 @@ export function Briefing() {
   const [custom, setCustom] = useState<Record<string, number>>({});
   const [turnoutPercent, setTurnoutPercent] = useState(100);
   const [turnoutAdjust, setTurnoutAdjust] = useState<Record<string, number>>({});
+  const [chamber, setChamber] = useState<"senate" | "governors" | "house">("senate");
   const scenario = scenarioGeneric(slider);
   const delta = scenario.delta;
 
@@ -198,9 +203,10 @@ export function Briefing() {
           </p>
         </div>
         <p className="max-w-3xl text-lg leading-8">
-          The generic congressional ballot in every state, and a Senate chance that splits
-          Polymarket’s live price with the public polling averages. Built so you can send one
-          link instead of a group chat full of screenshots.
+          The generic congressional ballot in every state, Senate and governor chances that split
+          Polymarket’s price with the public polling averages, and House districts drawn with
+          their real outlines. Flip among the three. Built so you can send one link instead of a
+          group chat full of screenshots.
         </p>
       </header>
 
@@ -279,9 +285,10 @@ export function Briefing() {
             </label>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Delta = this slider minus {NATIONAL_GENERIC.marginD.toFixed(1)}. A delta of +1.0
-              adds 1.0 point toward Democrats on every state generic-ballot estimate first, and on
-              every Senate polling margin. A per-state adjustment is applied after that, and only
-              to that state. The range runs from even to D+16.0. Refresh the page
+              adds 1.0 point toward Democrats on every state generic-ballot estimate, on every
+              Senate polling margin, and on every governor polling margin. A per-state adjustment
+              is applied after that, and only to that state. Turnout does not move those chances
+              or margins. The range runs from even to D+16.0. Refresh the page
               to restore {formatMargin(NATIONAL_GENERIC.marginD)}, clear every state adjustment, return turnout to 100% of the 2022 House vote, and clear every state’s 2024 turnout adjustment. Nothing is saved.
             </p>
           </article>
@@ -313,6 +320,25 @@ export function Briefing() {
           </article>
         </section>
 
+        <Tabs
+          value={chamber}
+          onValueChange={(value) => {
+            if (value === "senate" || value === "governors" || value === "house") setChamber(value);
+          }}
+          className="min-w-0 gap-8"
+        >
+          <TabsList aria-label="Briefing sections" className="h-11 w-full max-w-md bg-card">
+            <TabsTrigger value="senate" data-testid="tab-senate" className="h-9 px-3">
+              Senate
+            </TabsTrigger>
+            <TabsTrigger value="governors" data-testid="tab-governors" className="h-9 px-3">
+              Governors
+            </TabsTrigger>
+            <TabsTrigger value="house" data-testid="tab-house" className="h-9 px-3">
+              House
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="senate" className="flex min-w-0 flex-col gap-10">
         <p className="text-sm leading-6 text-muted-foreground">
           Those two markets are separate contracts. This page does not turn them into a joint
           simulation of who wins both chambers. Each Senate race below is its own blend.
@@ -593,6 +619,12 @@ export function Briefing() {
             nominee is Darline Graham Nordone; Lindsey Graham died on July 11, 2026, after
             winning the primary.
           </p>
+          <p>
+            Governor races are on their own tab and use this same split, for the states that
+            elect a governor in 2026. House districts are on their own tab. Each district is
+            outlined from the Census Bureau’s 119th Congress cartographic boundaries and colored
+            with that state’s generic-ballot estimate.
+          </p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
               <a className="underline underline-offset-4" href="https://en.wikipedia.org/wiki/2026_United_States_House_of_Representatives_elections#Generic_congressional_ballot_aggregate_polls">
@@ -643,6 +675,14 @@ export function Briefing() {
             </li>
           </ul>
         </section>
+          </TabsContent>
+          <TabsContent value="governors" className="min-w-0">
+            <GovernorPanel shiftFor={shiftFor} />
+          </TabsContent>
+          <TabsContent value="house" className="min-w-0">
+            <HousePanel margins={margins} />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
@@ -1083,7 +1123,7 @@ function StateDossier({
   );
 }
 
-function PollTable({ race }: { race: SenateRace }) {
+function PollTable({ race, office = "Senate" }: { race: SenateRace; office?: string }) {
   if (race.polls.length === 0) {
     return (
       <p className="text-sm leading-6 text-muted-foreground">
@@ -1101,7 +1141,7 @@ function PollTable({ race }: { race: SenateRace }) {
       </h3>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <caption className="sr-only">Polling averages for this Senate race</caption>
+          <caption className="sr-only">Polling averages for this {office} race</caption>
           <thead className="border-b text-xs tracking-wide text-muted-foreground uppercase">
             <tr>
               <th scope="col" className="py-2 pr-3 font-medium">Source</th>
@@ -1280,20 +1320,24 @@ function ProjectionLine({
   projection,
   base,
   delta,
+  office = "Senate",
+  testId = "senate-margin",
 }: {
   race: SenateRace;
   projection: NonNullable<ReturnType<typeof senateProjection>>;
   base: number | null;
   delta: number;
+  office?: string;
+  testId?: string;
 }) {
   const sides = marginSides(race);
   const detail =
     projection.basis === "poll" && sides && base !== null
       ? `${sides.left.split(" ").slice(-1)[0]}’s polling percentage minus ${sides.right.split(" ").slice(-1)[0]}’s is ${Number(base.toFixed(1)) > 0 ? "+" : ""}${Number(base.toFixed(1)).toFixed(1)} points. This state’s generic-ballot shift adds ${delta > 0 ? "+" : ""}${delta.toFixed(1)}.`
-      : "This is the state’s generic-ballot estimate, not a 2026 Senate poll. The chance stays the Polymarket price.";
+      : `This is the state’s generic-ballot estimate, not a 2026 ${office} poll. The chance stays the Polymarket price.`;
 
   return (
-    <p className="text-sm leading-6" data-testid="senate-margin">
+    <p className="text-sm leading-6" data-testid={testId}>
       <span className="font-medium">Projected margin {projection.text}.</span>{" "}
       <span className="text-muted-foreground">{detail}</span>
     </p>
@@ -1357,5 +1401,243 @@ function RaceRow({
         ) : null}
       </p>
     </article>
+  );
+}
+
+function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
+  const [selected, setSelected] = useState("TX");
+  const rows = Object.entries(GOVERNORS)
+    .flatMap(([abbr, race]) => {
+      const state = getState(abbr);
+      return state ? [{ abbr, race, state }] : [];
+    })
+    .sort((a, b) => closeness(a.race, shiftFor(a.abbr)) - closeness(b.race, shiftFor(b.abbr)));
+  const current = rows.find((row) => row.abbr === selected) ?? rows[0];
+  const delta = current ? shiftFor(current.abbr) : 0;
+  const people = current ? quotedChances(current.race, delta) : [];
+  const projection = current ? governorProjection(current.race, current.state.trumpMargin2024, delta) : null;
+  const blended = current ? blendsPolls(current.race) : false;
+
+  return (
+    <section className="flex flex-col gap-6" aria-labelledby="governor-heading">
+      <div className="flex max-w-3xl flex-col gap-3">
+        <h2 id="governor-heading" className="font-heading text-3xl">
+          Governor races
+        </h2>
+        <p className="text-sm leading-7">
+          Thirty-six states elect a governor on November 3, 2026. New Hampshire and Vermont are
+          here because those terms are two years. Kentucky, Louisiana, and Mississippi elect
+          governors in 2027. New Jersey and Virginia voted in 2025. The rest of the states
+          without a line elect a governor in 2028.
+        </p>
+        <p className="text-sm leading-7 text-muted-foreground">
+          Prices are the {GOVERNOR_POLYMARKET_AS_OF} Gamma API snapshot. They do not update on
+          their own. Where FiftyPlusOne publishes a 2026 average for the same two candidates, the
+          chance is half that candidate’s share of the two-candidate average and half the
+          Polymarket Yes price, then scaled so the quoted chances sum to about 100. A
+          generic-ballot move of +1.0 adds 1.0 point to a polled projected margin and 0.5 points
+          of two-party share on the polling half only. The Polymarket price stays put. A
+          per-state generic adjustment moves only that state. Turnout does not move these chances
+          or margins. Electoral-Vote.com does not publish a 2026 governor polling average, so it
+          is not blended in. A race with no FiftyPlusOne average is Polymarket-only, and the
+          margin shown is that state’s generic-ballot estimate.
+        </p>
+      </div>
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+        <div className="min-w-0 overflow-hidden rounded-xl border bg-card">
+          {rows.map((row) => {
+            const shift = shiftFor(row.abbr);
+            const quoted = quotedChances(row.race, shift);
+            const rowProjection = governorProjection(row.race, row.state.trumpMargin2024, shift);
+            const rowBlend = blendsPolls(row.race);
+            return (
+              <article
+                key={row.abbr}
+                className={`grid gap-3 border-b p-4 last:border-0 md:grid-cols-[11rem_1fr] ${selected === row.abbr ? "bg-muted/70" : ""}`}
+              >
+                <div>
+                  <Button
+                    variant="ghost"
+                    className="h-auto px-0 text-left font-heading text-2xl hover:bg-transparent"
+                    onClick={() => setSelected(row.abbr)}
+                    aria-current={selected === row.abbr ? "true" : undefined}
+                    data-testid={`governor-row-${row.abbr}`}
+                  >
+                    {row.state.name}
+                  </Button>
+                  <p className="text-sm text-muted-foreground" data-testid={`governor-basis-${row.abbr}`}>
+                    {rowBlend ? "Polymarket and polls" : "Polymarket-only"}
+                  </p>
+                </div>
+                <ul className="flex min-w-0 flex-col justify-center gap-1 text-sm">
+                  {quoted.map((person) => (
+                    <li key={person.name} className="flex justify-between gap-3">
+                      <span className="min-w-0">
+                        {person.name}
+                        <span className="text-muted-foreground"> · {partyName(person.party)}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums">{formatChance(person.chance)}</span>
+                    </li>
+                  ))}
+                  <li className="text-muted-foreground" data-testid={`governor-margin-${row.abbr}`} data-margin={rowProjection.margin} data-basis={rowProjection.basis}>
+                    Projected margin {rowProjection.text}
+                    {rowProjection.basis === "generic" ? " · generic ballot, not a poll" : ""}
+                  </li>
+                </ul>
+              </article>
+            );
+          })}
+        </div>
+        {current && projection ? (
+          <aside id="governor-dossier" className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5">
+            <div>
+              <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+                Selected race
+              </p>
+              <h3 className="font-heading text-4xl">{current.state.name}</h3>
+            </div>
+            <p className="text-sm leading-6" data-testid="governor-blend">
+              {governorBlendNote(current.race, delta)}
+            </p>
+            <ProjectionLine
+              race={current.race}
+              projection={projection}
+              base={pollMarginPoints(current.race)}
+              delta={delta}
+              office="governor"
+              testId="governor-dossier-margin"
+            />
+            <ul className="flex flex-col gap-2">
+              {people.map((person) => (
+                <li key={person.name} className="flex items-baseline justify-between gap-3 text-sm" data-testid={`governor-person-${current.abbr}-${person.party}`} data-chance={person.chance} data-polymarket={person.polymarket} data-poll={person.poll ?? ""}>
+                  <span>
+                    {person.name}
+                    <span className="text-muted-foreground"> · {partyName(person.party)}</span>
+                    {blended ? (
+                      <span className="block text-xs text-muted-foreground">
+                        Polymarket {formatChance(person.polymarket)}
+                        {person.poll !== null
+                          ? ` · polls ${formatChance(person.poll)}${delta !== 0 ? " after the slider" : ""}`
+                          : ""}
+                      </span>
+                    ) : (
+                      <span className="block text-xs text-muted-foreground">Polymarket-only</span>
+                    )}
+                  </span>
+                  <span className="shrink-0 tabular-nums">{formatChance(person.chance)}</span>
+                </li>
+              ))}
+            </ul>
+            <PollTable race={current.race} office="governor" />
+            {current.race.caveat ? (
+              <p className="text-sm leading-6 text-muted-foreground">{current.race.caveat}</p>
+            ) : null}
+            <a
+              href={current.race.polymarketUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="governor-link"
+              className={cn(buttonVariants({ variant: "outline" }), "h-11")}
+            >
+              Polymarket odds
+            </a>
+          </aside>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function governorBlendNote(race: SenateRace, delta: number): string {
+  const quoted = quotedChances(race, delta);
+  const leader = [...quoted].sort((a, b) => b.chance - a.chance)[0];
+  if (blendsPolls(race) && leader.poll !== null) {
+    const shift =
+      delta === 0
+        ? " The Polymarket price is the snapshot and does not move."
+        : ` The polling half includes the generic-ballot shift of ${delta > 0 ? "+" : ""}${delta.toFixed(1)}. The Polymarket price stays the snapshot.`;
+    return `${leader.name} is ${formatChance(leader.chance)} after splitting the Polymarket price, ${formatChance(leader.polymarket)}, with that candidate’s share of the two-candidate polling average, ${formatChance(leader.poll)}.${shift}`;
+  }
+  return `${leader.name} is ${formatChance(leader.polymarket)} on Polymarket. There is no matching 2026 polling average, so that price is not averaged with a poll and does not move with the generic-ballot shift. This race is Polymarket-only.`;
+}
+
+function HousePanel({ margins }: { margins: Record<string, number> }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const shape = selectedId ? districtById(selectedId) : undefined;
+  const state = shape ? getState(shape.abbr) : undefined;
+  const margin = shape ? margins[shape.abbr] : undefined;
+  const newerNames = "Alabama, California, Florida, Louisiana, North Carolina, Ohio, Tennessee, Texas, and Utah";
+
+  return (
+    <section className="flex flex-col gap-6" aria-labelledby="house-heading">
+      <div className="flex max-w-3xl flex-col gap-3">
+        <h2 id="house-heading" className="font-heading text-3xl">
+          House districts
+        </h2>
+        <p className="text-sm leading-7">
+          Every voting U.S. House district is outlined from its Census boundary. The shape is the
+          district, not a state blob and not a rectangle. The color is the parent state’s
+          generic-ballot estimate, the same estimate as the state map, including the national
+          slider and any adjustment on that state. It is not a district-level 2024 result and not
+          a 2026 candidate poll. At-large states are one district. The District of Columbia has no
+          voting House district and is not drawn.
+        </p>
+        <p className="text-sm leading-7 text-muted-foreground">
+          {newerNames} have enacted maps for 2026 that this Census file does not include. Those
+          states are still drawn with the Census outline. This page does not trace a replacement.
+        </p>
+      </div>
+      <div className="grid min-w-0 items-start gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
+        <div className="flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-4 sm:p-5">
+          <HouseMap margins={margins} selected={selectedId} onSelect={setSelectedId} />
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted-foreground">Jump to a district</span>
+            <select
+              value={selectedId ?? ""}
+              onChange={(event) => setSelectedId(event.target.value || null)}
+              aria-label="Jump to a House district"
+              className="h-11 rounded-lg border border-input bg-background px-3"
+            >
+              <option value="">Select a district</option>
+              {DISTRICT_PATHS.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {districtTitle(item.abbr, item.district)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <aside id="district-dossier" className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5">
+          <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+            Selected district
+          </p>
+          {shape && state && margin !== undefined ? (
+            <div data-testid="district-panel" data-district={shape.id} data-margin={margin}>
+              <h3 className="font-heading text-4xl">{districtTitle(shape.abbr, shape.district)}</h3>
+              <p className="mt-3 text-sm leading-6">
+                <span className="font-medium">Margin used to color it: {formatMargin(margin)}.</span>
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Source: {state.name}’s generic-ballot estimate, the same number that colors the
+                state map. It starts from the 2024 presidential margin, moves {EVEN_SWING} points
+                toward the Democrats, then adds the national slider and any adjustment on this
+                state alone. It is not a 2024 district result and not a candidate poll.
+              </p>
+              {isNewerThanCensus(shape.abbr) ? (
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {state.name} enacted a congressional map after the Census file’s May 31, 2024
+                  cutoff. This outline is the 119th Congress cartographic boundary, not that newer map.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-sm leading-6 text-muted-foreground">
+              Click a district. Alaska, Delaware, North Dakota, South Dakota, Vermont, and Wyoming
+              are at-large. The District of Columbia is not on this map.
+            </p>
+          )}
+        </aside>
+      </div>
+    </section>
   );
 }
