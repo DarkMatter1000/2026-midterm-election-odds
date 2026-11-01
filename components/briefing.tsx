@@ -35,6 +35,7 @@ import {
 import { HOUSE_2022, HOUSE_2022_FEC } from "@/lib/house-2022";
 import { EXIT_POLL_STATE_NAMES, EXIT_POLLS, type ExitPoll } from "@/lib/exit-polls";
 import { GOVERNOR_POLYMARKET_AS_OF, GOVERNORS, governorProjection } from "@/lib/governor-live";
+import { GOVERNOR_MARGINS, MARGIN_AS_OF, SENATE_MARGINS } from "@/lib/margin-live";
 import {
   HOUSE_2024_DISTRICT,
   HOUSE_MARKETS,
@@ -77,6 +78,15 @@ import {
   type SenateRace,
   type Share,
 } from "@/lib/senate-live";
+import {
+  TOSSUP_AS_OF,
+  TOSSUP_EVENT,
+  TOSSUP_STATES,
+  exactTossupMap,
+  productIn100,
+  tossupCall,
+  type TossupSide,
+} from "@/lib/tossup-live";
 
 /** Per-state custom delta, in points. Negative is more Republican. */
 const STATE_CUSTOM_MIN = -20;
@@ -108,6 +118,7 @@ export function Briefing() {
   const [turnoutPercent, setTurnoutPercent] = useState(100);
   const [turnoutAdjust, setTurnoutAdjust] = useState<Record<string, number>>({});
   const [chamber, setChamber] = useState<"senate" | "governors" | "house">("senate");
+  const [tossupPicks, setTossupPicks] = useState<Record<string, TossupSide>>({});
   const scenario = scenarioGeneric(slider);
   const delta = scenario.delta;
 
@@ -659,6 +670,13 @@ export function Briefing() {
             winning the primary.
           </p>
           <p>
+            The margin-of-victory list on a Senate or governor race is Polymarket’s own
+            brackets, from the {MARGIN_AS_OF} snapshot. The generic-ballot slider does not
+            move those prices. A race with no such market says so. House districts do not
+            get that list. The detector at the bottom of this tab uses a separate snapshot
+            of the same hour, {TOSSUP_AS_OF}, and your picks there are cleared only by a refresh.
+          </p>
+          <p>
             Governor races are on their own tab and use this same split, for the states that
             elect a governor in 2026. The map colors those states by the projected margin and
             leaves every other state gray. House districts are on their own tab. Each district
@@ -722,8 +740,12 @@ export function Briefing() {
               , ratings fetched {VOTEHUB_AS_OF}. The label on a clicked race is the one VoteHub
               prints in its Ratings view. The link opens that race on VoteHub.
             </li>
-          </ul>
+            </ul>
         </section>
+        <TossupDetector
+          picks={tossupPicks}
+          onPick={(abbr, side) => setTossupPicks((current) => ({ ...current, [abbr]: side }))}
+        />
           </TabsContent>
           <TabsContent value="governors" className="min-w-0">
             <GovernorPanel shiftFor={shiftFor} />
@@ -1253,6 +1275,7 @@ function StateDossier({
       {state.senate?.caveat ? (
         <p className="text-sm leading-6 text-muted-foreground">{state.senate.caveat}</p>
       ) : null}
+      {state.senate ? <MarginSection abbr={state.abbr} office="senate" /> : null}
       {state.senate ? (
         <VoteHubRow
           rating={VOTEHUB_SENATE[state.abbr]}
@@ -1684,6 +1707,7 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
             {current.race.caveat ? (
               <p className="text-sm leading-6 text-muted-foreground">{current.race.caveat}</p>
             ) : null}
+            <MarginSection abbr={current.abbr} office="governor" />
             <VoteHubRow
               rating={VOTEHUB_GOVERNOR[current.abbr]}
               indexUrl={VOTEHUB_GOVERNOR_INDEX}
@@ -1711,6 +1735,221 @@ function GovernorPanel({ shiftFor }: { shiftFor: (abbr: string) => number }) {
           </aside>
         )}
       </div>
+    </section>
+  );
+}
+
+function formatOdds(value: number): string {
+  return `${value.toFixed(1)} in 100`;
+}
+
+function MarginSection({ abbr, office }: { abbr: string; office: "senate" | "governor" }) {
+  const events = (office === "senate" ? SENATE_MARGINS : GOVERNOR_MARGINS)[abbr];
+
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-3"
+      data-testid={`${office}-margin-of-victory`}
+      data-events={events?.length ?? 0}
+    >
+      <h3 className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+        Margin of victory
+      </h3>
+      {!events || events.length === 0 ? (
+        <p className="text-sm leading-6" data-testid="margin-empty">
+          No Polymarket margin-of-victory market.
+        </p>
+      ) : (
+        <>
+          {events.map((event) => {
+            const ranked = event.brackets
+              .map((bracket, index) => ({ bracket, index }))
+              .sort((a, b) => b.bracket.price - a.bracket.price || a.index - b.index);
+            return (
+              <div key={event.slug} className="flex min-w-0 flex-col gap-2" data-testid="margin-event" data-slug={event.slug}>
+                <p className="text-sm font-medium">{event.title}</p>
+                <ol className="flex min-w-0 flex-col gap-2">
+                  {ranked.map(({ bracket }, rank) => (
+                    <li
+                      key={bracket.label}
+                      className="min-w-0"
+                      data-testid="margin-outcome"
+                      data-label={bracket.label}
+                      data-price={bracket.price}
+                    >
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="min-w-0">
+                          <span className="mr-2 tabular-nums text-muted-foreground">{rank + 1}.</span>
+                          {bracket.label}
+                        </span>
+                        <span className="shrink-0 tabular-nums">{formatOdds(bracket.price)}</span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+                        <div
+                          className="h-full rounded-full bg-foreground/70"
+                          style={{ width: `${Math.min(100, Math.max(0, bracket.price))}%` }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                <a
+                  href={event.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="margin-link"
+                  className="text-sm underline underline-offset-4"
+                >
+                  Polymarket margin of victory
+                </a>
+              </div>
+            );
+          })}
+          <p className="text-xs leading-5 text-muted-foreground" data-testid="margin-as-of">
+            Polymarket outcome prices, {MARGIN_AS_OF} snapshot. They do not move with the generic ballot.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TossupDetector({
+  picks,
+  onPick,
+}: {
+  picks: Record<string, TossupSide>;
+  onPick: (abbr: string, side: TossupSide) => void;
+}) {
+  const selected = TOSSUP_STATES.filter((state) => picks[state.abbr] === "R" || picks[state.abbr] === "D");
+  const matches = selected.filter((state) => picks[state.abbr] === tossupCall(state)).length;
+  const allPicked = selected.length === TOSSUP_STATES.length;
+  const exact = allPicked
+    ? exactTossupMap(TOSSUP_STATES.filter((state) => picks[state.abbr] === "R").map((state) => state.abbr))
+    : undefined;
+  const product = productIn100(
+    selected.map((state) => (picks[state.abbr] === "R" ? state.republican : state.democrat)),
+  );
+  const matchLine =
+    selected.length === 1
+      ? `${matches} of 1 pick matches the market’s call.`
+      : `${matches} of ${selected.length} picks match the market’s call.`;
+
+  return (
+    <section className="flex min-w-0 flex-col gap-4" aria-labelledby="tossup-heading" data-testid="tossup-detector">
+      <div className="flex max-w-3xl flex-col gap-3">
+        <h2 id="tossup-heading" className="font-heading text-3xl">
+          Tossup odd detector
+        </h2>
+        <p className="text-sm leading-7">
+          Pick Republican or Democrat for any of these Senate races. Nothing is chosen until you
+          click. A row lights up only after that pick. The market’s call is Republican when the
+          price of Republicans winning that state is at least 50 in 100, and Democrat otherwise.
+        </p>
+        <p className="text-sm leading-7 text-muted-foreground">
+          Those prices come from one Polymarket event, {TOSSUP_EVENT.title}. The outcomes are the
+          maps of Alaska, Iowa, Kansas, Maine, Michigan, Ohio, and Texas. There is no separate
+          contract for each state. The Republicans-win price is the sum of the Yes prices on the
+          maps where Republicans win that state. The Democrat price is the sum on the maps where
+          they do not. Those Yes prices add up to a little more than 100, so the two sides of one
+          state do not add to 100. Snapshot {TOSSUP_AS_OF}. The generic-ballot slider does not
+          move these prices or your picks. Refreshing the page clears the picks.
+        </p>
+      </div>
+      <div className="flex min-w-0 flex-col gap-3">
+        {TOSSUP_STATES.map((state) => {
+          const pick = picks[state.abbr];
+          const call = tossupCall(state);
+          const agreement = pick ? (pick === call ? "agree" : "against") : "none";
+          const sidePrice = pick === "R" ? state.republican : state.democrat;
+          return (
+            <div
+              key={state.abbr}
+              className={cn(
+                "flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4",
+                agreement === "agree" && "tossup-agree",
+                agreement === "against" && "tossup-against",
+              )}
+              data-testid={`tossup-row-${state.abbr}`}
+              data-agreement={agreement}
+              data-republican={state.republican}
+              data-democrat={state.democrat}
+              data-call={call}
+            >
+              <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <h3 className="font-heading text-2xl">{state.name}</h3>
+                <p className="text-sm tabular-nums" data-testid={`tossup-republican-${state.abbr}`}>
+                  Republicans win {formatOdds(state.republican)}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={pick === "R" ? "default" : "outline"}
+                  className="h-11 min-w-0"
+                  aria-pressed={pick === "R"}
+                  data-testid={`tossup-rep-${state.abbr}`}
+                  onClick={() => onPick(state.abbr, "R")}
+                >
+                  Republican
+                </Button>
+                <Button
+                  type="button"
+                  variant={pick === "D" ? "default" : "outline"}
+                  className="h-11 min-w-0"
+                  aria-pressed={pick === "D"}
+                  data-testid={`tossup-dem-${state.abbr}`}
+                  onClick={() => onPick(state.abbr, "D")}
+                >
+                  Democrat
+                </Button>
+              </div>
+              {pick ? (
+                <p className="text-sm leading-6" data-testid={`tossup-side-${state.abbr}`}>
+                  {pick === "R" ? "Republican" : "Democrat"} {formatOdds(sidePrice)}
+                  {agreement === "agree" ? " · agrees with the market" : " · goes against the market"}
+                </p>
+              ) : (
+                <p className="text-sm leading-6 text-muted-foreground">No side selected.</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {selected.length > 0 ? (
+        <div className="flex min-w-0 max-w-3xl flex-col gap-2 rounded-xl border bg-card p-4" data-testid="tossup-summary">
+          <p className="text-sm leading-6" data-testid="tossup-match-count">
+            {matchLine}
+          </p>
+          {allPicked && exact ? (
+            <p
+              className="text-sm leading-6"
+              data-testid="tossup-combined"
+              data-kind="outcome"
+              data-price={exact.price}
+              data-label={exact.label}
+            >
+              This event trades that exact map at {formatOdds(exact.price)}. The contract asks, “{exact.question}” That is this outcome’s Yes price, not a product of the state prices.
+            </p>
+          ) : (
+            <p className="text-sm leading-6" data-testid="tossup-combined" data-kind="product" data-price={product}>
+              The product of the selected sides’ prices is {formatOdds(product)}. That multiplies those state prices from this event. It is not a separate traded parlay.
+            </p>
+          )}
+        </div>
+      ) : null}
+      <p className="max-w-3xl text-sm leading-6">
+        <a
+          href={TOSSUP_EVENT.url}
+          target="_blank"
+          rel="noreferrer"
+          data-testid="tossup-link"
+          className="underline underline-offset-4"
+        >
+          Polymarket, which tossup Senate states Republicans win
+        </a>
+        . Prices are the {TOSSUP_AS_OF} snapshot.
+      </p>
     </section>
   );
 }

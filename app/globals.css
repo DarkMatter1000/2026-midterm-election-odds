@@ -181,3 +181,13 @@
   color: #6b5314;
   background: #f6efd4;
 }
+
+.tossup-agree {
+  background: #e5f0ea;
+  border-color: #2f6b4f;
+}
+
+.tossup-against {
+  background: #f6efd4;
+  border-color: #8a6a1f;
+}
